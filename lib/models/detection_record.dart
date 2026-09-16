@@ -8,6 +8,10 @@ class DetectionRecord {
     required this.confidence,
     required this.imagePath,
     required this.detectedAt,
+    this.source = 'camera',
+    this.confirmedByUser = false,
+    this.latitude,
+    this.longitude,
   });
 
   final String id;
@@ -18,6 +22,10 @@ class DetectionRecord {
   final double confidence;
   final String imagePath;
   final DateTime detectedAt;
+  final String source;
+  final bool confirmedByUser;
+  final double? latitude;
+  final double? longitude;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -28,6 +36,10 @@ class DetectionRecord {
     'confidence': confidence,
     'imagePath': imagePath,
     'detectedAt': detectedAt.toIso8601String(),
+    'source': source,
+    'confirmedByUser': confirmedByUser,
+    'latitude': latitude,
+    'longitude': longitude,
   };
 
   factory DetectionRecord.fromJson(Map<String, dynamic> json) {
@@ -40,6 +52,10 @@ class DetectionRecord {
           json['destination']?.toString() ?? 'Verifique antes de descartar',
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
       imagePath: json['imagePath']?.toString() ?? '',
+      source: json['source']?.toString() ?? 'camera',
+      confirmedByUser: json['confirmedByUser'] == true,
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
       detectedAt:
           DateTime.tryParse(json['detectedAt']?.toString() ?? '') ??
           DateTime.now(),

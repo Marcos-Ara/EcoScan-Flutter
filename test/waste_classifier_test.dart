@@ -1,33 +1,51 @@
 import 'package:ecoscan_mobile/services/waste_classifier.dart';
+import 'package:ecoscan_mobile/models/material_guide.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  group('WasteClassifier', () {
-    test('classifica garrafa plástica', () {
-      final result = WasteClassifier.classifyCandidates(const [
-        LabelCandidate('Plastic bottle', 0.92),
-      ]);
-
-      expect(result.name, 'Garrafa plástica');
-      expect(result.category, 'Plástico');
-      expect(result.bin, 'Vermelha');
-    });
-
-    test('prioriza eletrônico reconhecido entre os melhores rótulos', () {
-      final result = WasteClassifier.classifyCandidates(const [
-        LabelCandidate('Object', 0.98),
-        LabelCandidate('Mobile phone', 0.87),
-      ]);
-
-      expect(result.category, 'Eletrônico');
-      expect(result.bin, 'Coleta especial');
-    });
-
-    test('orienta uma nova foto sem rótulos', () {
-      final result = WasteClassifier.classifyCandidates(const []);
-
-      expect(result.name, 'Objeto não identificado');
-      expect(result.confidence, 0);
-    });
+  test('somente material no título', () {
+    final result = WasteClassifier.classifyCandidates(const [
+      LabelCandidate('plastic bottle', .94),
+    ]);
+    expect(result.name, 'Plástico');
+    expect(result.bin, 'Vermelha');
+  });
+  test('não confunde trechos de palavras', () {
+    for (final word in [
+      'candle',
+      'candy',
+      'tinny',
+      'plantation',
+      'mobile home',
+      'glasses',
+    ]) {
+      expect(
+        WasteClassifier.classifyCandidates([LabelCandidate(word, .99)]).isKnown,
+        isFalse,
+        reason: word,
+      );
+    }
+  });
+  test('baixa confiança pede confirmação', () {
+    expect(
+      WasteClassifier.classifyCandidates(const [LabelCandidate('plastic', .3)])
+          .isKnown,
+      isFalse,
+    );
+  });
+  test('evidências conflitantes pedem confirmação', () {
+    final result = WasteClassifier.classifyCandidates(const [
+      LabelCandidate('plastic', .85),
+      LabelCandidate('glass bottle', .87),
+    ]);
+    expect(result.isKnown, isFalse);
+  });
+  test('confirmação manual não inventa confiança', () {
+    final result = WasteClassifier.unknown.confirmed(
+      MaterialGuide.byId('plastic'),
+    );
+    expect(result.isManual, isTrue);
+    expect(result.confidence, 0);
+    expect(result.bin, 'Vermelha');
   });
 }

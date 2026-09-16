@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>O EcoScan usa a câmera para identificar materiais e orientar o descarte.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Selecione uma foto para escanear o material ou atualizar sua foto de perfil.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>O EcoScan usa sua localização para mostrar os EcoPontos mais próximos.</string>
 	<key>UIApplicationSceneManifest</key>

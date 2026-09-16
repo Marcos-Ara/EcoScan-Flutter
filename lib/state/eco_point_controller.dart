@@ -118,6 +118,8 @@ class EcoPointController extends ChangeNotifier {
       );
       _userLocation = LatLng(position.latitude, position.longitude);
       _lastMapCenter = _userLocation!;
+      _lastMapZoom = 15;
+      _recalculateDistances(_userLocation!);
       notifyListeners();
       await searchArea(
         _userLocation!,
@@ -154,6 +156,8 @@ class EcoPointController extends ChangeNotifier {
     int? radiusOverride,
     bool force = false,
   }) async {
+    _lastMapCenter = center;
+    _lastMapZoom = zoom;
     final radius = radiusOverride ?? radiusForZoom(zoom);
     final request = _AreaRequest(
       center: center,
@@ -175,6 +179,7 @@ class EcoPointController extends ChangeNotifier {
 
     final beforeCount = _points.length;
     final origin = _userLocation ?? center;
+    _recalculateDistances(origin);
     final gathered = <EcoPoint>[];
 
     Future<List<EcoPoint>> collect(Future<List<EcoPoint>> operation) async {
@@ -182,7 +187,7 @@ class EcoPointController extends ChangeNotifier {
         final items = await operation;
         if (items.isNotEmpty) {
           gathered.addAll(items);
-          _merge(items, origin);
+          _merge(items, _userLocation ?? center);
           _status =
               '${_points.length} EcoPontos carregados. Ampliando os resultados…';
           notifyListeners();
@@ -258,6 +263,12 @@ class EcoPointController extends ChangeNotifier {
   void _merge(Iterable<EcoPoint> incoming, LatLng origin) {
     for (final point in incoming) {
       _points[point.coordinateKey] = point.withDistanceFrom(origin);
+    }
+  }
+
+  void _recalculateDistances(LatLng origin) {
+    for (final key in _points.keys.toList()) {
+      _points[key] = _points[key]!.withDistanceFrom(origin);
     }
   }
 

@@ -10,6 +10,7 @@ import '../core/app_config.dart';
 import '../core/app_theme.dart';
 import '../models/eco_point.dart';
 import '../state/eco_point_controller.dart';
+import '../state/ecoscan_store.dart';
 
 class EcoPointsScreen extends StatefulWidget {
   const EcoPointsScreen({super.key});
@@ -64,6 +65,7 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
   }
 
   void _showPoint(EcoPoint point) {
+    unawaited(context.read<EcoScanStore>().markMapExplored());
     _mapController.move(point.position, 16);
     showModalBottomSheet<void>(
       context: context,
@@ -115,7 +117,7 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
             maxZoom: 19,
             onMapReady: () => unawaited(_initializeMap()),
             onPositionChanged: (camera, hasGesture) {
-              if (hasGesture) controller.onMapMoved(camera.center, camera.zoom);
+              controller.onMapMoved(camera.center, camera.zoom);
             },
           ),
           children: [

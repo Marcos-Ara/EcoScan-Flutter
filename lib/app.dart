@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_theme.dart';
-import 'screens/main_shell.dart';
+import 'screens/session_gate.dart';
+import 'services/firebase_session.dart';
 import 'services/eco_point_service.dart';
 import 'state/eco_point_controller.dart';
 import 'state/ecoscan_store.dart';
@@ -17,6 +18,7 @@ class EcoScanApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: store),
+        ChangeNotifierProvider(create: (_) => FirebaseSession()),
         Provider<EcoPointService>(
           create: (_) => EcoPointService(),
           dispose: (_, service) => service.dispose(),
@@ -28,11 +30,15 @@ class EcoScanApp extends StatelessWidget {
           ),
         ),
       ],
-      child: MaterialApp(
-        title: 'EcoScan AI',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.dark,
-        home: const MainShell(),
+      child: Consumer<EcoScanStore>(
+        builder: (context, store, _) => MaterialApp(
+          title: 'EcoScan AI',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: store.darkMode ? ThemeMode.dark : ThemeMode.light,
+          home: const SessionGate(),
+        ),
       ),
     );
   }

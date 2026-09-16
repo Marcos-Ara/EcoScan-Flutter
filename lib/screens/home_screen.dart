@@ -2,373 +2,231 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_theme.dart';
-import '../state/eco_point_controller.dart';
+import '../models/material_guide.dart';
+import '../services/firebase_session.dart';
 import '../state/ecoscan_store.dart';
+import '../widgets/account_avatar.dart';
+import 'community_screens.dart';
+import 'history_screen.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     required this.onOpenMap,
     required this.onOpenScanner,
-    required this.onOpenHistory,
     super.key,
   });
-
   final VoidCallback onOpenMap;
   final VoidCallback onOpenScanner;
-  final VoidCallback onOpenHistory;
-
+  void _open(BuildContext context, Widget screen) =>
+      Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen));
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<FirebaseSession>().account;
     final store = context.watch<EcoScanStore>();
-    final ecoPoints = context.watch<EcoPointController>();
-
+    final name = user?.name.isNotEmpty == true
+        ? user!.name.split(' ').first
+        : 'usuário';
+    final records = store.detections;
+    final recycled = records
+        .where((r) => MaterialGuide.byName(r.category)?.recyclable == true)
+        .length;
+    final organic = records.where((r) => r.category == 'Orgânico').length;
     return SafeArea(
-      child: CustomScrollView(
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-            sliver: SliverList.list(
-              children: [
-                const _Header(),
-                const SizedBox(height: 24),
-                _HeroCard(onScan: onOpenScanner, onMap: onOpenMap),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _MetricCard(
-                        value: '${ecoPoints.totalCount}',
-                        label: 'EcoPontos salvos',
-                        icon: Icons.location_on_outlined,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _MetricCard(
-                        value: '${store.scanCount}',
-                        label: 'Itens analisados',
-                        icon: Icons.auto_awesome_outlined,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 26),
-                Text(
-                  'O que você quer fazer?',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                _FeatureTile(
-                  icon: Icons.map_rounded,
-                  title: 'Encontrar EcoPontos',
-                  subtitle: 'Veja todos os locais próximos e explore qualquer região do mapa.',
-                  color: AppColors.blue,
-                  onTap: onOpenMap,
-                ),
-                const SizedBox(height: 12),
-                _FeatureTile(
-                  icon: Icons.camera_alt_rounded,
-                  title: 'Identificar um resíduo',
-                  subtitle: 'Abra a câmera e receba uma orientação básica de descarte.',
-                  color: AppColors.primary,
-                  onTap: onOpenScanner,
-                ),
-                const SizedBox(height: 12),
-                _FeatureTile(
-                  icon: Icons.history_rounded,
-                  title: 'Consultar histórico',
-                  subtitle:
-                      'Reveja as análises que ficam guardadas neste aparelho.',
-                  color: const Color(0xFFF4B942),
-                  onTap: onOpenHistory,
-                ),
-                const SizedBox(height: 18),
-                const _PrivacyNote(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: AppColors.primary,
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: const Icon(
-            Icons.eco_rounded,
-            color: Color(0xFF07100B),
-            size: 28,
-          ),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'EcoScan AI',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-              ),
-              Text(
-                'Descarte melhor. Recicle mais.',
-                style: TextStyle(color: AppColors.muted),
-              ),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            border: Border.all(color: AppColors.border),
-            borderRadius: BorderRadius.circular(99),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.circle, color: AppColors.primary, size: 8),
-              SizedBox(width: 6),
-              Text(
-                'MOBILE',
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HeroCard extends StatelessWidget {
-  const _HeroCard({required this.onScan, required this.onMap});
-
-  final VoidCallback onScan;
-  final VoidCallback onMap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF173C24), Color(0xFF102217)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFF2F6240)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0x264FC968),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: const Text(
-              'RECICLAGEM INTELIGENTE',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-          const SizedBox(height: 18),
-          const Text(
-            'Seu guia de descarte\nna palma da mão.',
-            style: TextStyle(
-              fontSize: 29,
-              height: 1.08,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Identifique materiais e encontre onde levar cada item.',
-            style: TextStyle(color: AppColors.muted, height: 1.45),
-          ),
-          const SizedBox(height: 22),
           Row(
             children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: onScan,
-                  icon: const Icon(Icons.center_focus_strong_rounded),
-                  label: const Text('Escanear'),
-                  style: FilledButton.styleFrom(
-                    foregroundColor: AppColors.background,
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onMap,
-                  icon: const Icon(Icons.near_me_outlined),
-                  label: const Text('EcoPontos'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.text,
-                    side: const BorderSide(color: Color(0xFF477455)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.value,
-    required this.label,
-    required this.icon,
-  });
-
-  final String value;
-  final String label;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(icon, color: AppColors.primary, size: 25),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  Text(
-                    label,
-                    maxLines: 2,
-                    style: const TextStyle(
-                      color: AppColors.muted,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FeatureTile extends StatelessWidget {
-  const _FeatureTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.color,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Icon(icon, color: color),
-              ),
-              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      'Bem-vindo de volta',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
-                      subtitle,
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 12,
-                        height: 1.35,
-                      ),
+                      'Olá, $name!',
+                      style: Theme.of(context).textTheme.headlineMedium,
                     ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: AppColors.muted),
+              AccountAvatar(onTap: () => _open(context, const ProfileScreen())),
             ],
           ),
-        ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: _Stat(
+                  value: records.length,
+                  label: 'Detectados',
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _Stat(
+                  value: recycled,
+                  label: 'Recicláveis',
+                  color: AppColors.blue,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _Stat(
+                  value: organic,
+                  label: 'Orgânicos',
+                  color: const Color(0xFFDE8A00),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            onPressed: onOpenScanner,
+            icon: const Icon(Icons.center_focus_strong, size: 26),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 22),
+              backgroundColor: AppColors.primaryDark,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
+            label: const Text(
+              'Iniciar Escaneamento',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            ),
+          ),
+          const SizedBox(height: 20),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            childAspectRatio: 1.28,
+            children: [
+              _Menu(
+                icon: Icons.history,
+                title: 'Histórico',
+                onTap: () => _open(context, const HistoryScreen()),
+              ),
+              _Menu(
+                icon: Icons.bar_chart,
+                title: 'Estatísticas',
+                onTap: () => _open(context, const StatsScreen()),
+              ),
+              _Menu(
+                icon: Icons.school_outlined,
+                title: 'Aprender',
+                onTap: () => _open(context, const LearnScreen()),
+              ),
+              _Menu(
+                icon: Icons.emoji_events_outlined,
+                title: 'Conquistas',
+                onTap: () => _open(context, const AchievementsScreen()),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(18),
+              leading: const Icon(
+                Icons.map_outlined,
+                size: 34,
+                color: AppColors.primary,
+              ),
+              title: const Text(
+                'EcoPontos',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text(
+                'Encontrar locais de descarte perto de você',
+              ),
+              trailing: const Icon(Icons.north_east),
+              onTap: onOpenMap,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              contentPadding: const EdgeInsets.all(18),
+              leading: const Icon(
+                Icons.people_outline,
+                color: AppColors.primary,
+                size: 30,
+              ),
+              title: const Text(
+                'Criadores',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text('Quem fez o EcoScan AI'),
+              onTap: () => _open(context, const CreatorsScreen()),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Escaneie. Descubra. Descarte melhor.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }
 }
 
-class _PrivacyNote extends StatelessWidget {
-  const _PrivacyNote();
-
+class _Stat extends StatelessWidget {
+  const _Stat({required this.value, required this.label, required this.color});
+  final int value;
+  final String label;
+  final Color color;
   @override
-  Widget build(BuildContext context) {
-    return const Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Icons.shield_outlined, color: AppColors.muted, size: 17),
-        SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            'As análises e o histórico desta base ficam no aparelho. Nenhuma conta é necessária.',
-            style: TextStyle(color: AppColors.muted, fontSize: 11, height: 1.4),
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 6),
+      child: Column(
+        children: [
+          Text(
+            '$value',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
           ),
-        ),
-      ],
-    );
-  }
+          const SizedBox(height: 4),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    ),
+  );
+}
+
+class _Menu extends StatelessWidget {
+  const _Menu({required this.icon, required this.title, required this.onTap});
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 31, color: AppColors.primary),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        ],
+      ),
+    ),
+  );
 }

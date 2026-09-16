@@ -16,7 +16,7 @@ publish_to: 'none'
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: ^3.13.3
@@ -44,6 +44,10 @@ dependencies:
   provider: ^6.1.5+1
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
+  image_picker: ^1.2.3
+  flutter_secure_storage: ^11.2.0
+  google_sign_in: ^7.2.0
+  image: ^4.10.1
 
 dev_dependencies:
   flutter_test:
@@ -66,6 +70,13 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/data/catalog.json
+    - assets/fonts/OFL.txt
+  fonts:
+    - family: Outfit
+      fonts:
+        - asset: assets/fonts/Outfit.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -14,6 +14,26 @@ abstract final class AppColors {
 }
 
 abstract final class AppTheme {
+  static ThemeData get light => ThemeData(
+    useMaterial3: true,
+    fontFamily: 'Outfit',
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: AppColors.primaryDark,
+      brightness: Brightness.light,
+    ),
+    scaffoldBackgroundColor: const Color(0xFFF7FAF7),
+    inputDecorationTheme: const InputDecorationTheme(
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+      ),
+    ),
+    cardTheme: const CardThemeData(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(22)),
+      ),
+    ),
+  );
   static ThemeData get dark {
     final scheme = ColorScheme.fromSeed(
       seedColor: AppColors.primary,
@@ -27,7 +47,7 @@ abstract final class AppTheme {
       brightness: Brightness.dark,
       colorScheme: scheme,
       scaffoldBackgroundColor: AppColors.background,
-      fontFamily: 'sans-serif',
+      fontFamily: 'Outfit',
       textTheme: const TextTheme(
         headlineLarge: TextStyle(
           fontWeight: FontWeight.w800,

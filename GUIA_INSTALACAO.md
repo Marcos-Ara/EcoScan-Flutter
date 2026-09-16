@@ -1,160 +1,118 @@
-# Guia de instalação do EcoScan AI
+# Como abrir e testar o EcoScan
 
-## 1. Entenda as duas pastas
+## 1. Projeto não é o Flutter SDK
 
-A pasta recebida nesta entrega é o **projeto do aplicativo**. A pasta que você já tinha em `Desktop\Flutter App\flutter` é o **Flutter SDK**, a ferramenta usada para abrir e compilar o projeto. Não coloque os arquivos do aplicativo dentro da pasta do SDK.
+Extraia este projeto, por exemplo em C:\Projetos\EcoScan-Flutter. Instale o Flutter SDK em outra pasta, como C:\src\flutter. Não copie o app para dentro do SDK.
 
-Recomenda-se manter assim:
+A pasta antiga mencionada em Desktop\Flutter App\flutter não estava disponível na verificação desta entrega. Foi usado Flutter 3.47.4 com Dart 3.13.3. O projeto exige Dart 3.13.3 ou compatível com a restrição do pubspec.yaml.
 
-```text
-C:\src\flutter\                  Flutter SDK
-C:\Projetos\EcoScan-Flutter\    este aplicativo
-```
+No Windows, prefira caminhos sem espaços para o projeto, SDK e cache de pacotes, pois ferramentas nativas de algumas dependências podem falhar com espaços.
 
-Evitar espaços no caminho do Flutter previne erros de ferramentas nativas no Windows. Se quiser manter o SDK onde já está, o caminho curto equivalente costuma ser `C:\Users\SCOREE~1\Desktop\FLUTTE~1\flutter`.
+## 2. Preparar Android
 
-## 2. Preparar o Windows para Android
+Instale o Android Studio e o Flutter SDK. No SDK Manager, instale Android SDK Platform 36, Build-Tools 36.0.0, Platform-Tools e Command-line Tools. O projeto usa NDK 28.2.13676358; o Gradle pode baixá-lo na primeira compilação após as licenças serem aceitas. Java 17 foi usado nesta entrega.
 
-1. Instale o Android Studio.
-2. Na primeira abertura, instale o Android SDK.
-3. Em **SDK Manager**, confirme estes componentes:
-   - Android SDK Platform 36;
-   - Android SDK Build-Tools;
-   - Android SDK Command-line Tools;
-   - Android Emulator, caso queira usar um celular virtual.
-4. Adicione `C:\src\flutter\bin` à variável `Path` do Windows. Se não mover o SDK, use o caminho da sua pasta Flutter.
-5. Feche e abra novamente o PowerShell.
-6. Execute:
+Adicione C:\src\flutter\bin ao Path e abra um novo terminal. Confira e leia/aceite as licenças Android:
 
-```powershell
+~~~powershell
 flutter doctor
 flutter doctor --android-licenses
-```
+~~~
 
-Aceite as licenças com `y`. O item **Android toolchain** precisa aparecer com um sinal verde.
+Sites oficiais: [Flutter](https://docs.flutter.dev/install) e [Android Studio](https://developer.android.com/studio).
 
-### Se o comando `flutter` não for encontrado
+## 3. Abrir a base
 
-Use temporariamente o caminho completo:
+No Android Studio, use Open e escolha a pasta que contém pubspec.yaml. No terminal dessa pasta:
 
-```powershell
-& "C:\Users\Score Educacional\Desktop\Flutter App\flutter\bin\flutter.bat" doctor
-```
-
-## 3. Abrir o projeto
-
-1. Extraia o ZIP desta entrega.
-2. No Android Studio, escolha **Open**.
-3. Selecione a pasta `EcoScan-Flutter`, onde está o arquivo `pubspec.yaml`.
-4. Abra o terminal nessa pasta e execute:
-
-```powershell
+~~~powershell
 flutter pub get
 flutter analyze
 flutter test
-```
+~~~
 
-Na primeira vez, o download das bibliotecas pode demorar alguns minutos.
+O primeiro download e a primeira compilação podem levar vários minutos. Não é necessário gerar outro projeto Flutter nem substituir a pasta lib de uma base antiga.
 
-## 4. Rodar em um celular Android
+## 4. Rodar no celular
 
-1. No celular, ative **Opções do desenvolvedor** e **Depuração USB**.
-2. Conecte o cabo USB e aceite a autorização mostrada no aparelho.
-3. Confira a conexão:
+Ative Depuração USB no Android, conecte o cabo e autorize o computador no celular.
 
-```powershell
+~~~powershell
 flutter devices
-```
-
-4. Inicie o EcoScan:
-
-```powershell
 flutter run
-```
+~~~
 
-Ao abrir o mapa, permita a localização. Ao abrir o scanner, permita a câmera.
+A sequência é: intro → login/cadastro → confirmação de e-mail → início. Uma conta já verificada com sessão válida pode entrar automaticamente após a intro. Use Configurações → Sair da Conta para testar o login novamente.
 
-## 5. Gerar um APK para instalar
+Autorize câmera ao abrir o scanner e localização ao abrir o mapa. Também é possível escolher uma imagem pela Galeria quando a câmera não está disponível.
 
-Para uma versão de teste otimizada:
+## 5. Gerar o APK
 
-```powershell
+Para um Android ARM64:
+
+~~~powershell
+flutter build apk --release --target-platform android-arm64
+~~~
+
+Para incluir mais arquiteturas Android:
+
+~~~powershell
 flutter build apk --release
-```
+~~~
 
-O arquivo será criado em:
+O arquivo é criado em build\app\outputs\flutter-apk\app-release.apk. Android mínimo: 7.0/API 24.
 
-```text
-build\app\outputs\flutter-apk\app-release.apk
-```
+A base usa assinatura de desenvolvimento para testes. Antes da Play Store, configure a chave de assinatura de produção, política de privacidade, configuração OAuth correspondente e faça testes reais. Não coloque chaves privadas no ZIP público.
 
-Antes de publicar na Play Store, configure uma chave de assinatura própria no Android. A base ainda usa a assinatura de desenvolvimento, adequada somente para testes.
+## 6. Conectar contas
 
-## 6. Rodar no iPhone
+Leia CONFIGURACAO_FIREBASE.md. O e-mail usa a configuração pública do projeto original. Não há conta fictícia nem senha padrão. Não foram criadas contas ou enviados e-mails reais durante os testes automatizados.
 
-A compilação para iPhone exige um Mac com Xcode. No Mac:
+Para fornecer os identificadores Google depois de configurá-los:
 
-```bash
+~~~powershell
+flutter run --dart-define-from-file=config/mobile.json
+flutter build apk --release --target-platform android-arm64 --dart-define-from-file=config/mobile.json
+~~~
+
+Crie mobile.json a partir de config/mobile.example.json. Um identificador vazio mantém o Google pendente; e-mail/senha continua disponível se habilitado no seu Firebase.
+
+## 7. iPhone
+
+É necessário Mac com Xcode, CocoaPods e uma conta de desenvolvimento Apple para instalação conforme o destino escolhido. A base inclui ios/, permissões de câmera, fotos e localização, chaveiro e Podfile com iOS mínimo 15.5.
+
+No Mac:
+
+~~~bash
 flutter pub get
+cd ios
+pod install
+cd ..
 flutter run
-```
+~~~
 
-O projeto já está configurado para iOS 15.5 ou superior e contém as mensagens de permissão de câmera e localização.
+Configure assinatura no Runner e, para Google, os IDs e o esquema de URL descritos no guia de Firebase. A compilação iOS não foi executada no Windows.
 
-## 7. Como os EcoPontos funcionam
+## 8. Roteiro de teste no seu aparelho
 
-1. O aplicativo pede a posição atual do celular.
-2. Faz uma busca rápida e outra detalhada por locais de reciclagem e descarte no OpenStreetMap.
-3. Ordena os locais pela distância até o usuário.
-4. Ao arrastar o mapa, consulta a nova área automaticamente.
-5. Os novos resultados são somados aos anteriores; por isso todos os EcoPontos encontrados continuam visíveis.
-6. O botão de atualização força uma nova consulta da área que está na tela.
+1. Abrir pela primeira vez: ver intro e login; cadastrar, confirmar e-mail e entrar.
+2. Sair, entrar, recuperar senha e tentar senha incorreta.
+3. Alterar foto e nome; fechar/abrir e conferir. Testar outra conta: ela não deve ver o histórico da primeira.
+4. Abrir scanner: permitir câmera, testar foco, flash, girar o aparelho e trocar de tela.
+5. Escanear um material isolado e bem iluminado. Testar plástico, papel, lata e uma embalagem ambígua.
+6. Selecionar JPG/PNG da galeria, cancelar a seleção e retornar ao scanner.
+7. Conferir material/lixeira, corrigir se necessário, salvar e abrir a foto no histórico.
+8. Bloquear/desbloquear o celular com scanner aberto e verificar retomada.
+9. Abrir EcoPontos, permitir localização, mover para outra área e conferir preservação dos pontos anteriores.
+10. Conferir perfil, estatísticas, conquistas, aprendizado e temas claro/escuro.
 
-As consultas públicas são suficientes para desenvolvimento. Para muitos usuários em produção, crie uma API intermediária com cache e siga as políticas de uso do Nominatim, Overpass e dos provedores de mapa.
+## 9. Problemas comuns
 
-## 8. Scanner e histórico
-
-- A câmera só é iniciada quando a tela Scanner é aberta, reduzindo tempo e consumo.
-- A resolução alta, o foco automático e a captura nativa ajudam a manter a imagem nítida.
-- A classificação básica roda no aparelho e não exige uma conta.
-- Fotos e resultados ficam na pasta privada do aplicativo.
-- Excluir um registro também remove sua foto local.
-
-## 9. Próximas integrações sugeridas
-
-A estrutura ficou pronta para uma segunda etapa com:
-
-- login e perfil;
-- sincronização do histórico;
-- cadastro e validação comunitária de EcoPontos;
-- painel administrativo;
-- modelo de IA treinado especificamente para resíduos;
-- API própria para controlar cache, limites e qualidade dos locais.
-
-Firebase ou Supabase podem ser conectados nessa etapa. Nenhuma senha ou chave secreta foi colocada nesta entrega.
-
-## Soluções rápidas
-
-### O mapa abriu, mas não mostrou pontos
-
-- confira a internet;
-- permita a localização;
-- toque no botão de localização;
-- mova o mapa para uma região urbana e toque em atualizar;
-- algumas cidades ainda possuem poucos locais cadastrados no OpenStreetMap.
-
-### A câmera não abre
-
-- abra as configurações do celular;
-- procure EcoScan AI;
-- permita o acesso à câmera;
-- feche e abra novamente o aplicativo.
-
-### Erro relacionado a caminho com espaços
-
-Mova o Flutter SDK para `C:\src\flutter` e atualize o `Path`. Depois rode:
-
-```powershell
-flutter clean
-flutter pub get
-```
+- Câmera negada: habilite a permissão nas configurações do sistema; a galeria permanece como alternativa.
+- Imagem não reconhecida: melhore a iluminação, enquadre um único material e confirme o tipo nos botões. A IA não determina a composição física apenas por aparência.
+- Arquivo não suportado: use JPG/PNG. Fotos acima de 30 MB são recusadas.
+- Login indisponível: confira conexão, provedor E-mail/senha no Firebase, chave pública e restrições aplicadas à API.
+- Google pendente: não é resolvido trocando uma imagem ou senha; requer OAuth nativo e SHA da assinatura Android.
+- Sem EcoPontos: confira internet/permissão e use Buscar nesta área. Os dados públicos podem estar incompletos ou temporariamente indisponíveis.
+- Histórico diferente da web: ele era local no navegador; nesta base também é local, por conta e aparelho.
+- Caminho com espaços: use diretórios simples. Em seguida execute flutter clean e flutter pub get dentro do projeto; nunca apague sua pasta Flutter inteira.

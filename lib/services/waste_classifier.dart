@@ -1,181 +1,176 @@
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
 
+import '../models/material_guide.dart';
+
 class LabelCandidate {
   const LabelCandidate(this.label, this.confidence);
-
   final String label;
   final double confidence;
 }
 
 class WasteClassification {
   const WasteClassification({
-    required this.name,
-    required this.category,
-    required this.bin,
-    required this.destination,
-    required this.confidence,
+    this.material,
+    this.confidence = 0,
+    this.options = const [],
+    this.source = 'image',
+    this.instruction,
   });
-
-  final String name;
-  final String category;
-  final String bin;
-  final String destination;
+  final MaterialGuide? material;
   final double confidence;
+  final List<MaterialGuide> options;
+  final String source;
+  final String? instruction;
+  bool get isKnown => material != null;
+  bool get isManual => source == 'manual';
+  String get name => material?.name ?? 'Confirme o material';
+  String get category => name;
+  String get bin => material?.bin ?? 'Escolha o material abaixo';
+  String get destination =>
+      instruction ??
+      material?.instruction ??
+      'Não foi possível distinguir o material com segurança. Escolha abaixo ou tire outra foto.';
+  WasteClassification confirmed(MaterialGuide choice) =>
+      WasteClassification(material: choice, source: 'manual');
 }
 
+/// Full tokens/phrases, never substring matching ("can" != "candle").
+/// Generic containers do not determine their material. Model scores describe
+/// label recognition, not a calibrated probability of chemical composition.
 abstract final class WasteClassifier {
-  static WasteClassification fromMlLabels(List<ImageLabel> labels) {
-    return classifyCandidates(
-      labels
-          .map((label) => LabelCandidate(label.label, label.confidence))
-          .toList(),
-    );
-  }
+  static WasteClassification fromMlLabels(List<ImageLabel> labels) =>
+      classifyCandidates(
+        labels.map((l) => LabelCandidate(l.label, l.confidence)).toList(),
+      );
+  static const unknown = WasteClassification();
+  static String normalize(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ');
+
+  static const directLabels = <String, List<String>>{
+    'electronic': [
+      'mobile phone',
+      'cell phone',
+      'smartphone',
+      'computer',
+      'laptop',
+      'keyboard',
+      'computer keyboard',
+      'computer mouse',
+      'headphones',
+      'headphone',
+      'earphones',
+      'earbud',
+      'charger',
+      'remote control',
+      'television',
+      'tablet computer',
+    ],
+    'special': [
+      'battery',
+      'light bulb',
+      'fluorescent lamp',
+      'medicine',
+      'syringe',
+    ],
+    'plastic': [
+      'plastic',
+      'plastic bottle',
+      'plastic bag',
+      'polyethylene',
+      'pet bottle',
+    ],
+    'paper': ['paper', 'cardboard', 'paperboard', 'newspaper', 'cardboard box'],
+    'glass': ['glass bottle', 'glass jar', 'glass container'],
+    'metal': [
+      'aluminum',
+      'aluminium',
+      'tin can',
+      'beverage can',
+      'aluminum can',
+      'steel',
+    ],
+    'organic': [
+      'food',
+      'fruit',
+      'vegetable',
+      'banana',
+      'apple',
+      'orange',
+      'broccoli',
+      'carrot',
+      'bread',
+      'food waste',
+      'banana peel',
+      'vegetables',
+      'lemon',
+    ],
+  };
 
   static WasteClassification classifyCandidates(
     List<LabelCandidate> candidates,
   ) {
-    if (candidates.isEmpty) return unknown;
-    final ordered = [...candidates]
-      ..sort((a, b) => b.confidence.compareTo(a.confidence));
-
-    for (final candidate in ordered) {
-      final value = candidate.label.toLowerCase();
-      if (_containsAny(value, const [
-        'battery',
-        'phone',
-        'mobile',
-        'computer',
-        'keyboard',
-        'electronic',
-        'device',
-        'cable',
-        'charger',
-      ])) {
-        return WasteClassification(
-          name: _friendlyName(candidate.label),
-          category: 'Eletrônico',
-          bin: 'Coleta especial',
-          destination: 'Leve a um ponto de coleta de eletrônicos ou EcoPonto autorizado.',
-          confidence: candidate.confidence,
-        );
+    final evidence = <String, double>{};
+    for (final candidate in candidates) {
+      if (candidate.confidence < 0.60 || !candidate.confidence.isFinite) {
+        continue;
       }
-      if (_containsAny(value, const [
-        'paper',
-        'cardboard',
-        'newspaper',
-        'book',
-        'carton',
-      ])) {
-        return WasteClassification(
-          name: _friendlyName(candidate.label),
-          category: 'Papel',
-          bin: 'Azul',
-          destination: 'Mantenha seco e limpo antes de enviar para reciclagem.',
-          confidence: candidate.confidence,
-        );
+      final label = normalize(candidate.label);
+      for (final entry in directLabels.entries) {
+        if (entry.value.contains(label)) {
+          final previous = evidence[entry.key] ?? 0;
+          if (candidate.confidence > previous) {
+            evidence[entry.key] = candidate.confidence;
+          }
+        }
       }
-      if (_containsAny(value, const ['glass', 'jar'])) {
+    }
+    for (final special in ['special', 'electronic']) {
+      if ((evidence[special] ?? 0) >= 0.7) {
         return WasteClassification(
-          name: _friendlyName(candidate.label),
-          category: 'Vidro',
-          bin: 'Verde',
-          destination: 'Embale com segurança e leve para a coleta de vidro.',
-          confidence: candidate.confidence,
-        );
-      }
-      if (_containsAny(value, const [
-        'metal',
-        'aluminum',
-        'steel',
-        'tin',
-        'can',
-      ])) {
-        return WasteClassification(
-          name: _friendlyName(candidate.label),
-          category: 'Metal',
-          bin: 'Amarela',
-          destination: 'Esvazie e encaminhe para reciclagem de metais.',
-          confidence: candidate.confidence,
-        );
-      }
-      if (_containsAny(value, const [
-        'plastic',
-        'bottle',
-        'container',
-        'packaging',
-        'cup',
-        'toy',
-      ])) {
-        return WasteClassification(
-          name: _friendlyName(candidate.label),
-          category: 'Plástico',
-          bin: 'Vermelha',
-          destination: 'Lave rapidamente, seque e descarte com os recicláveis.',
-          confidence: candidate.confidence,
-        );
-      }
-      if (_containsAny(value, const [
-        'food',
-        'fruit',
-        'vegetable',
-        'banana',
-        'apple',
-        'plant',
-        'leaf',
-        'bread',
-        'meal',
-      ])) {
-        return WasteClassification(
-          name: _friendlyName(candidate.label),
-          category: 'Orgânico',
-          bin: 'Marrom',
-          destination:
-              'Use a coleta orgânica ou compostagem, quando disponível.',
-          confidence: candidate.confidence,
+          material: MaterialGuide.byId(special),
+          confidence: evidence[special]!,
         );
       }
     }
-
-    final best = ordered.first;
-    return WasteClassification(
-      name: _friendlyName(best.label),
-      category: 'Verificar material',
-      bin: 'Consulte a coleta local',
-      destination:
-          'A IA reconheceu o objeto, mas o material precisa ser confirmado.',
-      confidence: best.confidence,
-    );
-  }
-
-  static const unknown = WasteClassification(
-    name: 'Objeto não identificado',
-    category: 'Verificar material',
-    bin: 'Consulte a coleta local',
-    destination: 'Tire outra foto com boa luz e o objeto centralizado.',
-    confidence: 0,
-  );
-
-  static bool _containsAny(String value, List<String> terms) =>
-      terms.any(value.contains);
-
-  static String _friendlyName(String label) {
-    const translations = {
-      'bottle': 'Garrafa',
-      'plastic bottle': 'Garrafa plástica',
-      'can': 'Lata',
-      'paper': 'Papel',
-      'cardboard': 'Papelão',
-      'glass': 'Vidro',
-      'mobile phone': 'Celular',
-      'computer': 'Computador',
-      'battery': 'Bateria',
-      'food': 'Alimento',
-    };
-    final normalized = label.trim().toLowerCase();
-    if (translations.containsKey(normalized)) return translations[normalized]!;
-    if (label.trim().isEmpty) return 'Objeto analisado';
-    final clean = label.trim();
-    return '${clean[0].toUpperCase()}${clean.substring(1)}';
+    final ordered = evidence.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (ordered.isNotEmpty) {
+      if (ordered.length > 1 && ordered[0].value - ordered[1].value < 0.15) {
+        return WasteClassification(
+          options: ordered.map((e) => MaterialGuide.byId(e.key)).toList(),
+        );
+      }
+      return WasteClassification(
+        material: MaterialGuide.byId(ordered.first.key),
+        confidence: ordered.first.value,
+      );
+    }
+    final labels = candidates
+        .where((c) => c.confidence >= 0.6)
+        .map((c) => normalize(c.label))
+        .toSet();
+    if (labels.any(
+      const [
+        'bottle',
+        'jar',
+        'glass',
+        'cup',
+        'container',
+        'packaging',
+      ].contains,
+    )) {
+      return WasteClassification(
+        options: [
+          'plastic',
+          'glass',
+          'metal',
+          'paper',
+        ].map(MaterialGuide.byId).toList(),
+      );
+    }
+    return unknown;
   }
 }
