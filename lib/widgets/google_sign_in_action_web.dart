@@ -7,15 +7,18 @@ Widget buildGoogleSignInAction({
   required VoidCallback? onPressed,
 }) {
   if (!ready) {
-    return const OutlinedButton.icon(
-      onPressed: null,
-      icon: Text(
-        'G',
-        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+  return OutlinedButton.icon(
+    onPressed: null,
+    icon: const Text(
+      'G',
+      style: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.bold,
       ),
-      label: Text('Continuar com Google'),
-    );
-  }
+    ),
+    label: const Text('Continuar com Google'),
+  );
+}
 
   // On Web the Google Identity Services SDK requires its own rendered button.
   // A custom Flutter button calling authenticate() is explicitly unsupported.
