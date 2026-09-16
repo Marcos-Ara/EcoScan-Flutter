@@ -1,11 +1,21 @@
-/// Public application identifiers copied from the supplied website.
+/// Public application identifiers used by the client.
+///
+/// Firebase Authentication in this codebase still points to the original
+/// Auth project unless FIREBASE_API_KEY/FIREBASE_AUTH_DOMAIN are supplied at
+/// build time. Firebase Hosting may be a different project.
 abstract final class BackendConfig {
   static const firebaseApiKey = String.fromEnvironment(
     'FIREBASE_API_KEY',
     defaultValue: 'AIzaSyBMXRb6XSMES6FRQD1INg0-JjU0SD61iGY',
   );
-  static const firebaseProjectId = 'ecoscan-b8b02';
-  static const firebaseAuthDomain = 'ecoscan-b8b02.firebaseapp.com';
+  static const firebaseProjectId = String.fromEnvironment(
+    'FIREBASE_PROJECT_ID',
+    defaultValue: 'ecoscan-b8b02',
+  );
+  static const firebaseAuthDomain = String.fromEnvironment(
+    'FIREBASE_AUTH_DOMAIN',
+    defaultValue: 'ecoscan-b8b02.firebaseapp.com',
+  );
   static const supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
     defaultValue: 'https://tekyqhtodsbeqbrvdtqs.supabase.co',
@@ -14,10 +24,19 @@ abstract final class BackendConfig {
     'SUPABASE_PUBLIC_KEY',
     defaultValue: 'sb_publishable_ai4WJqrDkBS7rcebvaS7KA_hpf0hzOP',
   );
-  // Native OAuth IDs were not included in the supplied web project.
-  static const googleServerClientId = String.fromEnvironment(
+
+  /// OAuth client of type "Web application".
+  ///
+  /// Android uses it as serverClientId. Web uses it as clientId. This value is
+  /// public, but it must belong to the same Google/Firebase Auth project used
+  /// by [firebaseApiKey].
+  static const googleWebClientId = String.fromEnvironment(
     'GOOGLE_WEB_CLIENT_ID',
   );
+
+  // Backwards-compatible alias used by older code/docs.
+  static const googleServerClientId = googleWebClientId;
+
   static const googleIosClientId = String.fromEnvironment(
     'GOOGLE_IOS_CLIENT_ID',
   );

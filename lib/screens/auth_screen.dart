@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../core/app_theme.dart';
 import '../services/firebase_session.dart';
 import '../widgets/eco_brand.dart';
+import '../widgets/google_sign_in_action.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -22,6 +23,16 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscure = true;
   String? _message;
   bool _success = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<FirebaseSession>().prepareGoogleSignIn();
+      }
+    });
+  }
 
   Future<void> _run(Future<void> Function() action, {String? success}) async {
     setState(() {
@@ -232,20 +243,24 @@ class _AuthScreenState extends State<AuthScreen> {
                       ],
                     ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: _busy
-                        ? null
-                        : () => _run(
-                            context.read<FirebaseSession>().signInGoogle,
-                          ),
-                    icon: const Text(
-                      'G',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Consumer<FirebaseSession>(
+                    builder: (context, auth, _) => GoogleSignInAction(
+                      busy: _busy,
+                      ready: auth.googleReady,
+                      onPressed: () => _run(auth.signInGoogle),
                     ),
-                    label: const Text('Continuar com Google'),
+                  ),
+                  Consumer<FirebaseSession>(
+                    builder: (context, auth, _) => auth.googleError == null
+                        ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              auth.googleError!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: AppColors.danger),
+                            ),
+                          ),
                   ),
                   if (_message != null)
                     Padding(

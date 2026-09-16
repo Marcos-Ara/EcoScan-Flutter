@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -54,7 +54,10 @@ class AuthFailure implements Exception {
       'Este método de acesso precisa ser habilitado no Firebase do projeto.',
     'NETWORK' =>
       'Sem conexão com o serviço. Confira a internet e tente novamente.',
-    'GOOGLE_CONFIG' => 'O acesso Google neste celular ainda precisa ser configurado. Use e-mail e senha.',
+    'GOOGLE_CONFIG' =>
+      'O acesso com Google ainda precisa do ID OAuth Web deste projeto. Configure GOOGLE_WEB_CLIENT_ID e gere o app novamente.',
+    'GOOGLE_UNSUPPORTED' =>
+      'O acesso com Google não está disponível neste ambiente.',
     'CANCELED' => 'Acesso cancelado.',
     _ => 'Não foi possível concluir. Tente novamente.',
   };
@@ -77,6 +80,10 @@ class FirebaseSession extends ChangeNotifier {
   String? restoreError;
   Future<void>? _refreshing;
   bool _googleInitialized = false;
+  bool _googlePreparing = false;
+  bool googleReady = false;
+  String? googleError;
+  StreamSubscription<GoogleSignInAuthenticationEvent>? _googleSubscription;
 
   Future<Map<String, dynamic>> _request(
     String action,
@@ -264,33 +271,118 @@ class FirebaseSession extends ChangeNotifier {
     await reload();
   }
 
-  Future<void> signInGoogle() async {
-    if (BackendConfig.googleServerClientId.isEmpty) {
+  Future<void> _ensureGoogleInitialized() async {
+    if (_googleInitialized) return;
+    if (BackendConfig.googleWebClientId.isEmpty) {
       throw const AuthFailure('GOOGLE_CONFIG');
     }
+
+    final signIn = GoogleSignIn.instance;
+    await signIn.initialize(
+      // Google Identity Services on Web needs the Web OAuth client as
+      // clientId. Android needs that same Web OAuth client as serverClientId.
+      clientId: kIsWeb
+          ? BackendConfig.googleWebClientId
+          : defaultTargetPlatform == TargetPlatform.iOS &&
+                BackendConfig.googleIosClientId.isNotEmpty
+          ? BackendConfig.googleIosClientId
+          : null,
+      serverClientId: kIsWeb ? null : BackendConfig.googleWebClientId,
+    );
+
+    if (kIsWeb) {
+      _googleSubscription ??= signIn.authenticationEvents.listen(
+        (event) {
+          if (event is GoogleSignInAuthenticationEventSignIn) {
+            unawaited(_handleGoogleAuthenticationEvent(event.user));
+          }
+        },
+        onError: (Object error, StackTrace _) {
+          googleError = _googleErrorMessage(error);
+          notifyListeners();
+        },
+      );
+    }
+    _googleInitialized = true;
+    googleReady = true;
+    googleError = null;
+    notifyListeners();
+  }
+
+  /// Prepares Google Sign-In before the Web GIS button is rendered.
+  ///
+  /// On Web, google_sign_in 7.x does not allow authenticate() from a custom
+  /// Flutter button. The official GIS button emits authenticationEvents,
+  /// which are handled by [_completeGoogleSignIn].
+  Future<void> prepareGoogleSignIn() async {
+    if (_googleInitialized || _googlePreparing) return;
+    _googlePreparing = true;
     try {
-      if (!_googleInitialized) {
-        await GoogleSignIn.instance.initialize(
-          serverClientId: BackendConfig.googleServerClientId,
-          clientId: Platform.isIOS && BackendConfig.googleIosClientId.isNotEmpty
-              ? BackendConfig.googleIosClientId
-              : null,
-        );
-        _googleInitialized = true;
+      await _ensureGoogleInitialized();
+    } catch (error) {
+      googleReady = false;
+      googleError = _googleErrorMessage(error);
+      notifyListeners();
+    } finally {
+      _googlePreparing = false;
+    }
+  }
+
+  Future<void> _completeGoogleSignIn(GoogleSignInAccount user) async {
+    final idToken = user.authentication.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw const AuthFailure('GOOGLE_CONFIG');
+    }
+    final postBody = Uri(
+      queryParameters: {'id_token': idToken, 'providerId': 'google.com'},
+    ).query;
+    final data = await _request('signInWithIdp', {
+      'postBody': postBody,
+      // For Web the actual origin must be authorized in Firebase Auth.
+      // Native builds use the Firebase auth domain as the request URI.
+      'requestUri': kIsWeb
+          ? Uri.base.origin
+          : 'https://${BackendConfig.firebaseAuthDomain}',
+      'returnSecureToken': true,
+    });
+    await _acceptTokens(data);
+    await reload();
+    googleError = null;
+    notifyListeners();
+  }
+
+  Future<void> _handleGoogleAuthenticationEvent(
+    GoogleSignInAccount user,
+  ) async {
+    try {
+      await _completeGoogleSignIn(user);
+    } catch (error) {
+      googleError = _googleErrorMessage(error);
+      notifyListeners();
+    }
+  }
+
+  String _googleErrorMessage(Object error) {
+    if (error is AuthFailure) return error.toString();
+    if (error is GoogleSignInException) {
+      if (error.code == GoogleSignInExceptionCode.canceled) {
+        return const AuthFailure('CANCELED').toString();
       }
-      final user = await GoogleSignIn.instance.authenticate();
-      final idToken = user.authentication.idToken;
-      if (idToken == null) throw const AuthFailure('GOOGLE_CONFIG');
-      final postBody = Uri(
-        queryParameters: {'id_token': idToken, 'providerId': 'google.com'},
-      ).query;
-      final data = await _request('signInWithIdp', {
-        'postBody': postBody,
-        'requestUri': 'https://${BackendConfig.firebaseAuthDomain}',
-        'returnSecureToken': true,
-      });
-      await _acceptTokens(data);
-      await reload();
+      return const AuthFailure('GOOGLE_CONFIG').toString();
+    }
+    return const AuthFailure('GOOGLE_CONFIG').toString();
+  }
+
+  Future<void> signInGoogle() async {
+    await _ensureGoogleInitialized();
+    final signIn = GoogleSignIn.instance;
+    if (!signIn.supportsAuthenticate()) {
+      // Web must use the Google-rendered GIS button instead of authenticate().
+      throw const AuthFailure('GOOGLE_UNSUPPORTED');
+    }
+    try {
+      final user = await signIn.authenticate();
+      await _completeGoogleSignIn(user);
     } on AuthFailure {
       rethrow;
     } on GoogleSignInException catch (error) {
@@ -299,10 +391,13 @@ class FirebaseSession extends ChangeNotifier {
             ? 'CANCELED'
             : 'GOOGLE_CONFIG',
       );
+    } catch (_) {
+      throw const AuthFailure('GOOGLE_CONFIG');
     }
   }
 
   Future<void> signOut() async {
+    googleError = null;
     _idToken = null;
     _refreshToken = null;
     account = null;
@@ -321,6 +416,7 @@ class FirebaseSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(_googleSubscription?.cancel());
     _client.close();
     super.dispose();
   }
