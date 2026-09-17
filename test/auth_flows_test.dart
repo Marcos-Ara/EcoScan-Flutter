@@ -122,15 +122,10 @@ void main() {
     expect(auth.restoring, isFalse);
     auth.dispose();
   });
-  test('Google sem identificador explica a configuração pendente', () async {
+  test('sessão começa sem conta autenticada', () async {
     final auth = FirebaseSession();
-    await expectLater(
-      auth.signInGoogle(),
-      throwsA(
-        isA<AuthFailure>().having((e) => e.code, 'code', 'GOOGLE_CONFIG'),
-      ),
-    );
     expect(auth.account, isNull);
+    expect(auth.restoring, isTrue);
     auth.dispose();
   });
 }

@@ -14,7 +14,6 @@ import 'package:provider/provider.dart';
 
 import '../core/app_theme.dart';
 import '../models/detection_record.dart';
-import '../models/material_guide.dart';
 import '../services/scan_service.dart';
 import '../services/waste_classifier.dart';
 import '../state/eco_point_controller.dart';
@@ -39,7 +38,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _selecting = false;
   bool _loading = true;
   bool _busy = false;
-  bool _live = !kIsWeb;
+  bool _live = true;
   bool _flash = false;
   bool _saved = false;
   bool _saving = false;
@@ -452,15 +451,6 @@ class _ScannerScreenState extends State<ScannerScreen>
     }
   }
 
-  void _choose(MaterialGuide choice) {
-    _liveTimer?.cancel();
-    _revision++;
-    setState(() {
-      _live = false;
-      _saved = false;
-      _result = (_result ?? WasteClassifier.unknown).confirmed(choice);
-    });
-  }
 
   void _notice(String text) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
@@ -694,62 +684,40 @@ class _ScannerScreenState extends State<ScannerScreen>
                         ),
                       ),
                     if (result == null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
                         child: Text(
-                          kIsWeb
-                              ? 'No navegador, fotografe ou escolha uma imagem. A IA Web analisa o objeto e indica o material; se houver dúvida, você pode confirmar abaixo.'
-                              : 'Aponte para um material por vez ou selecione uma imagem. O resultado mostra o material e a lixeira indicada.',
+                          'Aponte para um objeto por vez ou escolha uma foto. A IA identifica o objeto, estima o material e informa automaticamente a lixeira correta — sem confirmação manual.',
                           textAlign: TextAlign.center,
                         ),
                       )
                     else ...[
                       _MaterialResult(result: result),
                       const SizedBox(height: 12),
-                      Text(
-                        result.isKnown
-                            ? 'O material é outro? Toque para corrigir.'
-                            : 'Qual é o material? Toque para confirmar.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          for (final material in MaterialGuide.all)
-                            ChoiceChip(
-                              label: Text(material.name),
-                              selected: result.material?.id == material.id,
-                              avatar: Icon(
-                                Icons.circle,
-                                size: 12,
-                                color: material.color,
-                              ),
-                              onSelected: _busy || _saving
-                                  ? null
-                                  : (_) => _choose(material),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _busy || _saving || _saved || !result.isKnown
-                            ? null
-                            : _save,
-                        icon: Icon(
-                          _saved ? Icons.check : Icons.bookmark_add_outlined,
+                      if (!result.isKnown)
+                        OutlinedButton.icon(
+                          onPressed: _busy || _saving ? null : _selectPhoto,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Tentar outra foto'),
+                        )
+                      else
+                        FilledButton.icon(
+                          onPressed: _busy || _saving || _saved
+                              ? null
+                              : _save,
+                          icon: Icon(
+                            _saved ? Icons.check : Icons.bookmark_add_outlined,
+                          ),
+                          label: Text(
+                            _saved
+                                ? 'Salvo no histórico'
+                                : _saving
+                                ? 'Salvando…'
+                                : 'Salvar análise',
+                          ),
                         ),
-                        label: Text(
-                          _saved
-                              ? 'Salvo no histórico'
-                              : _saving
-                              ? 'Salvando…'
-                              : 'Salvar análise',
-                        ),
-                      ),
                     ],
-                    if (!kIsWeb && !_live)
+                    if (!_live)
                       TextButton.icon(
                         onPressed: _busy || _saving
                             ? null
@@ -757,6 +725,10 @@ class _ScannerScreenState extends State<ScannerScreen>
                                 setState(() {
                                   _live = true;
                                   _scanError = null;
+                                  _photoBytes = null;
+                                  _photoPath = null;
+                                  _result = null;
+                                  _saved = false;
                                 });
                                 if (_camera?.value.isInitialized != true) {
                                   unawaited(_openCamera());
@@ -781,9 +753,11 @@ class _ScannerScreenState extends State<ScannerScreen>
 class _MaterialResult extends StatelessWidget {
   const _MaterialResult({required this.result});
   final WasteClassification result;
+
   @override
   Widget build(BuildContext context) {
     final color = result.material?.color ?? AppColors.muted;
+    final confidence = (result.confidence * 100).clamp(0, 100).round();
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -795,11 +769,7 @@ class _MaterialResult extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            result.isManual
-                ? 'CONFIRMADO POR VOCÊ'
-                : result.isKnown
-                ? 'MATERIAL SUGERIDO'
-                : 'PRECISA DE CONFIRMAÇÃO',
+            result.isKnown ? 'IDENTIFICADO PELA IA' : 'ANÁLISE INCONCLUSIVA',
             style: TextStyle(
               color: color,
               fontSize: 10,
@@ -807,42 +777,121 @@ class _MaterialResult extends StatelessWidget {
               letterSpacing: 1,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            result.name,
-            style: const TextStyle(fontSize: 29, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 12),
-          if (result.isKnown)
+          if (result.detectedObject != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              result.detectedObject!,
+              style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
+            ),
+          ],
+          const SizedBox(height: 10),
+          if (result.isKnown) ...[
             Row(
               children: [
-                Icon(
-                  result.material!.id == 'electronic' ||
-                          result.material!.id == 'special'
-                      ? Icons.location_on
-                      : Icons.delete_rounded,
-                  color: color,
-                  size: 42,
-                ),
-                const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    result.bin == 'Coleta especial'
-                        ? result.bin
-                        : 'Lixeira ${result.bin.toLowerCase()}',
-                    style: TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w800,
-                      color: color,
-                    ),
+                  child: _ResultInfo(
+                    title: 'Material',
+                    value: result.name,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _ResultInfo(
+                    title: 'Confiança',
+                    value: confidence > 0 ? '$confidence%' : 'Estimativa',
+                    color: color,
                   ),
                 ),
               ],
             ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    result.material!.id == 'electronic' ||
+                            result.material!.id == 'special'
+                        ? Icons.location_on
+                        : Icons.delete_rounded,
+                    color: color,
+                    size: 42,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Destino',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                        ),
+                        Text(
+                          result.bin == 'Coleta especial'
+                              ? result.bin
+                              : 'Lixeira ${result.bin.toLowerCase()}',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
           Text(result.destination, style: const TextStyle(height: 1.5)),
         ],
       ),
     );
   }
+}
+
+class _ResultInfo extends StatelessWidget {
+  const _ResultInfo({
+    required this.title,
+    required this.value,
+    required this.color,
+  });
+
+  final String title;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      );
 }

@@ -27,9 +27,9 @@ abstract final class BackendConfig {
   );
 
   /// OAuth client of type "Web application" from the same Google/Firebase
-  /// project. Android uses it as `serverClientId`; Web reads the same client ID
-  /// from `web/index.html` and this value is kept as a build-time validation /
-  /// native configuration source.
+  /// project. Web receives it through GoogleSignIn.initialize(); Android uses
+  /// the same value as `serverClientId`. Build-time values from mobile.json can
+  /// override the fallback below.
   static const googleWebClientId = String.fromEnvironment(
     'GOOGLE_WEB_CLIENT_ID',
     defaultValue:

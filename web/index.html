@@ -65,8 +65,95 @@
           }
         }
 
+        // Reforça classes que carregam informação de MATERIAL. O COCO costuma
+        // retornar apenas "bottle"; o MobileNet, por outro lado, muitas vezes
+        // distingue beer/wine/pop bottle. Estes rótulos extras alimentam o
+        // mesmo classificador local do app e não exigem API key.
+        const normalized = labels.map((e) => ({
+          label: String(e.label || '').toLowerCase(),
+          confidence: Number(e.confidence || 0),
+        }));
+
+        function boost(label, confidence) {
+          const current = labels.find(
+            (e) => String(e.label || '').toLowerCase() === label.toLowerCase(),
+          );
+          if (current) current.confidence = Math.max(Number(current.confidence || 0), confidence);
+          else labels.push({ label, confidence });
+        }
+
+        for (const item of normalized) {
+          const name = item.label;
+          const c = item.confidence;
+          if (/beer bottle|wine bottle|glass bottle|mason jar|perfume bottle/.test(name)) {
+            boost('glass bottle', Math.max(0.78, c));
+          }
+          if (/pop bottle|water bottle|plastic bottle|pill bottle|shampoo bottle|lotion bottle/.test(name)) {
+            boost('plastic bottle', Math.max(0.76, c));
+          }
+          if (/beer can|tin can|aluminum can|beverage can/.test(name)) {
+            boost('aluminum can', Math.max(0.82, c));
+          }
+          if (/cardboard|carton|paper bag|envelope|newspaper/.test(name)) {
+            boost('cardboard', Math.max(0.76, c));
+          }
+        }
+
+        // Ajuda visual para garrafas genéricas. COCO detecta muito bem a forma
+        // "bottle", mas não informa o material. Quando o objeto é claramente
+        // verde/âmbar dentro da própria bounding box, tratamos isso como uma
+        // evidência extra de vidro. É apenas um sinal adicional; rótulos
+        // específicos do MobileNet continuam tendo prioridade.
+        function bottleVisualHint(prediction) {
+          if (!prediction || String(prediction.class || '').toLowerCase() !== 'bottle') return null;
+          const [x, y, w, h] = prediction.bbox || [];
+          if (![x, y, w, h].every(Number.isFinite) || w < 8 || h < 8) return null;
+          const canvas = document.createElement('canvas');
+          canvas.width = 96;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (!ctx) return null;
+          ctx.drawImage(image, x, y, w, h, 0, 0, canvas.width, canvas.height);
+          const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          let useful = 0;
+          let greenAmber = 0;
+          let metallic = 0;
+          for (let i = 0; i < data.length; i += 16) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const brightness = (r + g + b) / 3;
+            if (brightness > 242 || brightness < 18) continue;
+            useful++;
+            const saturated = max - min > 28;
+            const green = saturated && g > r * 1.10 && g > b * 1.08;
+            const amber = saturated && r > g * 1.12 && g > b * 1.10 && r < 225;
+            if (green || amber) greenAmber++;
+            if (max - min < 16 && brightness > 65 && brightness < 205) metallic++;
+          }
+          if (useful < 20) return null;
+          const glassRatio = greenAmber / useful;
+          const metalRatio = metallic / useful;
+          if (glassRatio >= 0.20) return { label: 'glass bottle', confidence: Math.min(0.86, 0.64 + glassRatio) };
+          if (metalRatio >= 0.70) return { label: 'metal bottle', confidence: 0.68 };
+          return null;
+        }
+
+        const hasSpecificBottleMaterial = labels.some((e) =>
+          /beer bottle|wine bottle|glass bottle|pop bottle|water bottle|plastic bottle|metal bottle/i.test(String(e.label || '')),
+        );
+        if (!hasSpecificBottleMaterial) {
+          const bottle = objects
+            .filter((e) => String(e.class || '').toLowerCase() === 'bottle')
+            .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
+          const hint = bottleVisualHint(bottle);
+          if (hint) boost(hint.label, hint.confidence);
+        }
+
         labels.sort((a, b) => b.confidence - a.confidence);
-        return labels.slice(0, 28);
+        return labels.slice(0, 32);
       };
     })();
   </script>

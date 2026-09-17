@@ -1,5 +1,4 @@
 import 'package:ecoscan_mobile/services/waste_classifier.dart';
-import 'package:ecoscan_mobile/models/material_guide.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -26,26 +25,35 @@ void main() {
       );
     }
   });
-  test('baixa confiança pede confirmação', () {
-    expect(
-      WasteClassifier.classifyCandidates(const [LabelCandidate('plastic', .3)])
-          .isKnown,
-      isFalse,
+  test('baixa confiança não inventa material e pede nova foto', () {
+    final raw = WasteClassifier.classifyCandidates(const [
+      LabelCandidate('plastic', .3),
+    ]);
+    final result = WasteClassifier.finalizeAutomatic(
+      raw,
+      const [LabelCandidate('plastic', .3)],
     );
+    expect(result.isKnown, isFalse);
+    expect(result.source, 'ai-unresolved');
+    expect(result.destination, contains('Tire outra foto'));
   });
-  test('evidências conflitantes pedem confirmação', () {
-    final result = WasteClassifier.classifyCandidates(const [
+  test('evidências conflitantes não exibem confirmação manual', () {
+    final candidates = const [
       LabelCandidate('plastic', .85),
       LabelCandidate('glass bottle', .87),
-    ]);
-    expect(result.isKnown, isFalse);
+    ];
+    final raw = WasteClassifier.classifyCandidates(candidates);
+    final result = WasteClassifier.finalizeAutomatic(raw, candidates);
+    expect(result.isManual, isFalse);
+    expect(result.source, isNot('manual'));
   });
-  test('confirmação manual não inventa confiança', () {
-    final result = WasteClassifier.unknown.confirmed(
-      MaterialGuide.byId('plastic'),
-    );
-    expect(result.isManual, isTrue);
-    expect(result.confidence, 0);
-    expect(result.bin, 'Vermelha');
+  test('rótulo específico fraco ainda pode virar estimativa automática', () {
+    const candidates = [LabelCandidate('glass bottle', .18)];
+    final raw = WasteClassifier.classifyCandidates(candidates);
+    final result = WasteClassifier.finalizeAutomatic(raw, candidates);
+    expect(result.isKnown, isTrue);
+    expect(result.name, 'Vidro');
+    expect(result.bin, 'Verde');
+    expect(result.isManual, isFalse);
   });
 }

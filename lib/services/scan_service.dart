@@ -35,7 +35,7 @@ class ScanService {
   Future<MaterialCatalog>? _catalog;
   bool _closed = false;
 
-  bool get supportsAutomaticLabeling => !kIsWeb;
+  bool get supportsAutomaticLabeling => true;
 
   ImageLabeler get _nativeLabeler => _labeler ??= ImageLabeler(
     options: ImageLabelerOptions(confidenceThreshold: 0.5),
@@ -63,18 +63,12 @@ class ScanService {
         } catch (_) {
           result = WasteClassifier.classifyCandidates(candidates);
         }
-        if (!result.isKnown && result.options.isEmpty) {
-          result = const WasteClassification(
-            instruction:
-                'A IA não reconheceu o material com segurança. Aproxime o objeto, use boa luz ou confirme o material abaixo.',
-            source: 'web-ai',
-          );
-        }
+        result = WasteClassifier.finalizeAutomatic(result, candidates);
       } catch (_) {
         result = const WasteClassification(
           instruction:
-              'O classificador Web não ficou disponível. Confira a internet e tente novamente; você também pode confirmar o material abaixo.',
-          source: 'web-ai',
+              'A IA Web não ficou disponível. Confira a internet e tente novamente.',
+          source: 'web-ai-error',
         );
       }
       return ScanResult(
@@ -106,6 +100,7 @@ class ScanService {
       } catch (_) {
         result = WasteClassifier.classifyCandidates(candidates);
       }
+      result = WasteClassifier.finalizeAutomatic(result, candidates);
       return ScanResult(
         imagePath: file.path,
         imageBytes: prepared,
