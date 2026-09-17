@@ -10,11 +10,11 @@ abstract final class BackendConfig {
   );
   static const firebaseProjectId = String.fromEnvironment(
     'FIREBASE_PROJECT_ID',
-    defaultValue: 'ecoscan-b8b02',
+    defaultValue: 'ecoscan-ai-e961f',
   );
   static const firebaseAuthDomain = String.fromEnvironment(
     'FIREBASE_AUTH_DOMAIN',
-    defaultValue: 'ecoscan-b8b02.firebaseapp.com',
+    defaultValue: 'ecoscan-ai-e961f.firebaseapp.com',
   );
   static const supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
