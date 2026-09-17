@@ -698,7 +698,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         child: Text(
                           kIsWeb
-                              ? 'No navegador, fotografe ou escolha uma imagem e confirme o material. A detecção automática por ML Kit fica disponível no Android/iOS.'
+                              ? 'No navegador, fotografe ou escolha uma imagem. A IA Web analisa o objeto e indica o material; se houver dúvida, você pode confirmar abaixo.'
                               : 'Aponte para um material por vez ou selecione uma imagem. O resultado mostra o material e a lixeira indicada.',
                           textAlign: TextAlign.center,
                         ),

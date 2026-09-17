@@ -38,7 +38,7 @@ class EcoPointController extends ChangeNotifier {
   );
   double _lastMapZoom = 13;
   EcoPointCategory? _categoryFilter;
-  MapTileStyle _tileStyle = MapTileStyle.dark;
+  MapTileStyle _tileStyle = MapTileStyle.streets;
 
   bool get isSearching => _isSearching;
   bool get isLocating => _isLocating;

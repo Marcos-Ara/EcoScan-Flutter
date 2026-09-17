@@ -10,11 +10,66 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="EcoScan AI">
   <meta name="theme-color" content="#071008">
-  <meta name="google-signin-client_id" content="1403190965-t4i39s47ojq3p1jrolhbenq349tpph45.apps.googleusercontent.com">
   <link rel="manifest" href="manifest.json">
   <title>EcoScan AI</title>
 </head>
 <body>
+  <!-- Browser-side scanner: no API key. Models are downloaded once and cached. -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <script>
+    (() => {
+      let cocoPromise;
+      let mobileNetPromise;
+
+      function loadImage(dataUrl) {
+        return new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error('Não foi possível abrir a imagem para análise.'));
+          image.src = dataUrl;
+        });
+      }
+
+      async function getCoco() {
+        cocoPromise ??= cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        return cocoPromise;
+      }
+
+      async function getMobileNet() {
+        mobileNetPromise ??= mobilenet.load({ version: 2, alpha: 0.50 });
+        return mobileNetPromise;
+      }
+
+      window.ecoscanClassifyImage = async (dataUrl) => {
+        const image = await loadImage(dataUrl);
+        const [coco, mobileNet] = await Promise.all([getCoco(), getMobileNet()]);
+        const [objects, classes] = await Promise.all([
+          coco.detect(image, 20, 0.20),
+          mobileNet.classify(image, 7),
+        ]);
+
+        const labels = [];
+        for (const prediction of objects) {
+          labels.push({
+            label: String(prediction.class || ''),
+            confidence: Number(prediction.score || 0),
+          });
+        }
+        for (const prediction of classes) {
+          const probability = Number(prediction.probability || 0);
+          for (const label of String(prediction.className || '').split(',')) {
+            const normalized = label.trim();
+            if (normalized) labels.push({ label: normalized, confidence: probability });
+          }
+        }
+
+        labels.sort((a, b) => b.confidence - a.confidence);
+        return labels.slice(0, 28);
+      };
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

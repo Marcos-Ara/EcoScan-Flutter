@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'material_catalog.dart';
 import 'waste_classifier.dart';
+import 'web_image_labeler.dart';
 
 class ScanResult {
   const ScanResult({
@@ -26,10 +27,9 @@ class ScanResult {
 
 /// Image analysis pipeline shared by camera and gallery.
 ///
-/// ML Kit is native-only (Android/iOS). On Web the camera/gallery still works,
-/// the photo is normalized locally, and the UI asks the user to confirm the
-/// material instead of calling an unsupported MethodChannel. This keeps the
-/// browser console clean and avoids pretending that ML Kit works on Web.
+/// ML Kit is used on Android/iOS. Web uses a browser-side TensorFlow.js
+/// classifier (COCO-SSD + MobileNet) through a tiny JS bridge, so camera and
+/// gallery scans work without an API key and without native MethodChannels.
 class ScanService {
   ImageLabeler? _labeler;
   Future<MaterialCatalog>? _catalog;
@@ -54,10 +54,33 @@ class ScanService {
     final prepared = await compute(_preparePhoto, bytes);
 
     if (kIsWeb) {
+      WasteClassification result;
+      try {
+        final candidates = await classifyWebImage(prepared);
+        try {
+          final catalog = await (_catalog ??= MaterialCatalog.load());
+          result = catalog.classify(candidates);
+        } catch (_) {
+          result = WasteClassifier.classifyCandidates(candidates);
+        }
+        if (!result.isKnown && result.options.isEmpty) {
+          result = const WasteClassification(
+            instruction:
+                'A IA não reconheceu o material com segurança. Aproxime o objeto, use boa luz ou confirme o material abaixo.',
+            source: 'web-ai',
+          );
+        }
+      } catch (_) {
+        result = const WasteClassification(
+          instruction:
+              'O classificador Web não ficou disponível. Confira a internet e tente novamente; você também pode confirmar o material abaixo.',
+          source: 'web-ai',
+        );
+      }
       return ScanResult(
         imagePath: sourceFile.path,
         imageBytes: prepared,
-        classification: WasteClassifier.unknown,
+        classification: result,
       );
     }
 

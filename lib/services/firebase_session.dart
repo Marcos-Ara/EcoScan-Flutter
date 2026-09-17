@@ -282,11 +282,11 @@ class FirebaseSession extends ChangeNotifier {
 
     final signIn = GoogleSignIn.instance;
     await signIn.initialize(
-      // On Web the client ID is read from the official meta tag in
-      // web/index.html. Passing it again here causes Google Identity Services
-      // to initialize the same client more than once in debug builds.
+      // Initialize Google Identity Services exactly once. On Web we pass the
+      // OAuth client ID programmatically and intentionally do not duplicate it
+      // with a <meta name="google-signin-client_id"> tag in index.html.
       clientId: kIsWeb
-          ? null
+          ? BackendConfig.googleWebClientId
           : defaultTargetPlatform == TargetPlatform.iOS &&
                 BackendConfig.googleIosClientId.isNotEmpty
           ? BackendConfig.googleIosClientId

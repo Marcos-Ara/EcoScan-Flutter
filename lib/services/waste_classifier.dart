@@ -53,9 +53,12 @@ abstract final class WasteClassifier {
     'electronic': [
       'mobile phone',
       'cell phone',
+      'cellular telephone',
       'smartphone',
       'computer',
+      'desktop computer',
       'laptop',
+      'notebook computer',
       'keyboard',
       'computer keyboard',
       'computer mouse',
@@ -78,16 +81,21 @@ abstract final class WasteClassifier {
     'plastic': [
       'plastic',
       'plastic bottle',
+      'water bottle',
+      'shampoo bottle',
+      'lotion bottle',
       'plastic bag',
       'polyethylene',
       'pet bottle',
     ],
-    'paper': ['paper', 'cardboard', 'paperboard', 'newspaper', 'cardboard box'],
-    'glass': ['glass bottle', 'glass jar', 'glass container'],
+    'paper': ['paper', 'cardboard', 'paperboard', 'newspaper', 'cardboard box', 'carton'],
+    'glass': ['glass bottle', 'glass jar', 'glass container', 'beer bottle', 'wine bottle'],
     'metal': [
       'aluminum',
       'aluminium',
       'tin can',
+      'can',
+      'beer can',
       'beverage can',
       'aluminum can',
       'steel',
@@ -114,10 +122,22 @@ abstract final class WasteClassifier {
   ) {
     final evidence = <String, double>{};
     for (final candidate in candidates) {
-      if (candidate.confidence < 0.60 || !candidate.confidence.isFinite) {
-        continue;
-      }
+      if (!candidate.confidence.isFinite) continue;
       final label = normalize(candidate.label);
+      final specific = const <String>{
+        'beer bottle',
+        'wine bottle',
+        'water bottle',
+        'plastic bottle',
+        'shampoo bottle',
+        'lotion bottle',
+        'beer can',
+        'tin can',
+        'cellular telephone',
+        'notebook computer',
+      }.contains(label);
+      final minimum = specific ? 0.35 : 0.55;
+      if (candidate.confidence < minimum) continue;
       for (final entry in directLabels.entries) {
         if (entry.value.contains(label)) {
           final previous = evidence[entry.key] ?? 0;
@@ -149,7 +169,7 @@ abstract final class WasteClassifier {
       );
     }
     final labels = candidates
-        .where((c) => c.confidence >= 0.6)
+        .where((c) => c.confidence >= 0.50)
         .map((c) => normalize(c.label))
         .toSet();
     if (labels.any(

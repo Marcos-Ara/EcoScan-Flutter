@@ -153,9 +153,12 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
             ),
             SimpleAttributionWidget(
               source: Text(
-                controller.tileStyle == MapTileStyle.satellite
-                    ? 'Esri, OpenStreetMap contributors'
-                    : 'OpenStreetMap contributors',
+                switch (controller.tileStyle) {
+                  MapTileStyle.dark => 'CARTO, OpenStreetMap contributors',
+                  MapTileStyle.streets => 'OpenStreetMap contributors',
+                  MapTileStyle.satellite =>
+                    'Esri, OpenStreetMap contributors',
+                },
                 style: const TextStyle(fontSize: 9),
               ),
               backgroundColor: const Color(0xB307100B),
@@ -314,7 +317,7 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
 
   static String _tileUrl(MapTileStyle style) => switch (style) {
     MapTileStyle.dark =>
-      'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     MapTileStyle.streets => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     MapTileStyle.satellite => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   };
@@ -451,9 +454,13 @@ class _PointsSheet extends StatelessWidget {
               ),
             ],
           ),
-          child: CustomScrollView(
-            controller: scrollController,
-            slivers: [
+          child: Material(
+            type: MaterialType.transparency,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+            clipBehavior: Clip.antiAlias,
+            child: CustomScrollView(
+              controller: scrollController,
+              slivers: [
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 9, 16, 10),
@@ -580,8 +587,9 @@ class _PointsSheet extends StatelessWidget {
                     );
                   },
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: 16)),
-            ],
+                const SliverToBoxAdapter(child: SizedBox(height: 16)),
+              ],
+            ),
           ),
         );
       },
