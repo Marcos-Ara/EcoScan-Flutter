@@ -1,5 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -36,7 +39,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _selecting = false;
   bool _loading = true;
   bool _busy = false;
-  bool _live = true;
+  bool _live = !kIsWeb;
   bool _flash = false;
   bool _saved = false;
   bool _saving = false;
@@ -46,6 +49,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   String? _cameraError;
   String? _scanError;
   String? _photoPath;
+  Uint8List? _photoBytes;
   String _source = 'camera';
   WasteClassification? _result;
 
@@ -58,13 +62,13 @@ class _ScannerScreenState extends State<ScannerScreen>
 
   Future<void> _boot() async {
     // Android may kill the process while its gallery picker is open.
-    if (Platform.isAndroid) {
+    if (!kIsWeb && Platform.isAndroid) {
       try {
         final lost = await _picker.retrieveLostData();
         if (!mounted) return;
         if (lost.files?.isNotEmpty == true) {
           _live = false;
-          await _analyzePath(lost.files!.first.path, fromGallery: true);
+          await _analyzeFile(lost.files!.first, fromGallery: true);
         } else if (lost.exception != null) {
           setState(
             () => _scanError =
@@ -148,15 +152,17 @@ class _ScannerScreenState extends State<ScannerScreen>
           await camera.dispose();
           return;
         }
-        try {
-          await camera.setFocusMode(FocusMode.auto);
-        } catch (_) {}
-        try {
-          await camera.setExposureMode(ExposureMode.auto);
-        } catch (_) {}
-        try {
-          await camera.setFlashMode(FlashMode.off);
-        } catch (_) {}
+        if (!kIsWeb) {
+          try {
+            await camera.setFocusMode(FocusMode.auto);
+          } catch (_) {}
+          try {
+            await camera.setExposureMode(ExposureMode.auto);
+          } catch (_) {}
+          try {
+            await camera.setFlashMode(FlashMode.off);
+          } catch (_) {}
+        }
         if (!mounted || !_active || request != _revision) return;
         setState(() {
           _loading = false;
@@ -168,7 +174,9 @@ class _ScannerScreenState extends State<ScannerScreen>
           setState(() {
             _loading = false;
             _cameraError = error.code.toLowerCase().contains('denied')
-                ? 'Permita a câmera nas configurações do celular. Você também pode selecionar uma foto.'
+                ? (kIsWeb
+                      ? 'Permita a câmera nas permissões deste site no navegador. Você também pode selecionar uma foto.'
+                      : 'Permita a câmera nas configurações do celular. Você também pode selecionar uma foto.')
                 : 'Não foi possível abrir a câmera. Tente novamente ou escolha uma foto.';
           });
         }
@@ -186,7 +194,14 @@ class _ScannerScreenState extends State<ScannerScreen>
 
   void _scheduleLive() {
     _liveTimer?.cancel();
-    if (!_live || !_active || !mounted || _selecting || _saving) return;
+    if (!_scanner.supportsAutomaticLabeling ||
+        !_live ||
+        !_active ||
+        !mounted ||
+        _selecting ||
+        _saving) {
+      return;
+    }
     _liveTimer = Timer(const Duration(milliseconds: 2400), () {
       if (!_busy && _camera?.value.isInitialized == true) {
         unawaited(_capture(automatic: true));
@@ -229,7 +244,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     XFile? photo;
     try {
       photo = await _camera!.takePicture();
-      final analysis = await _scanner.analyze(photo.path);
+      final analysis = await _scanner.analyzeFile(photo);
       if (!mounted || request != _revision || !_active) {
         await _deleteTemp(analysis.imagePath);
         return;
@@ -244,7 +259,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         if (!automatic || _liveFailures >= 3) _live = false;
       });
     } finally {
-      if (photo != null) {
+      if (photo != null && !kIsWeb) {
         try {
           await File(photo.path).delete();
         } catch (_) {}
@@ -252,7 +267,10 @@ class _ScannerScreenState extends State<ScannerScreen>
     }
   }
 
-  Future<void> _analyzePath(String path, {required bool fromGallery}) async {
+  Future<void> _analyzeFile(
+    XFile file, {
+    required bool fromGallery,
+  }) async {
     if (_busy || !mounted) return;
     final request = ++_revision;
     setState(() {
@@ -262,7 +280,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     });
     final operation = () async {
       try {
-        final analysis = await _scanner.analyze(path);
+        final analysis = await _scanner.analyzeFile(file);
         if (!mounted || request != _revision) {
           await _deleteTemp(analysis.imagePath);
           return;
@@ -285,6 +303,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     final previous = _photoPath;
     setState(() {
       _photoPath = result.imagePath;
+      _photoBytes = result.imageBytes;
       _result = result.classification;
       _source = fromGallery ? 'gallery' : 'camera';
       _saved = false;
@@ -313,7 +332,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         imageQuality: 94,
       );
       if (!mounted) return;
-      if (photo != null) await _analyzePath(photo.path, fromGallery: true);
+      if (photo != null) await _analyzeFile(photo, fromGallery: true);
     } on PlatformException {
       if (mounted) {
         setState(
@@ -332,6 +351,10 @@ class _ScannerScreenState extends State<ScannerScreen>
   }
 
   Future<void> _toggleFlash() async {
+    if (kIsWeb) {
+      _notice('O flash pelo navegador depende do suporte da câmera e fica desativado no modo Web.');
+      return;
+    }
     final camera = _camera;
     if (camera?.value.isInitialized != true || _busy) return;
     try {
@@ -343,6 +366,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   }
 
   Future<void> _focus(TapDownDetails details, Size size) async {
+    if (kIsWeb) return;
     final camera = _camera;
     if (camera?.value.isInitialized != true || _busy) return;
     final point = Offset(
@@ -378,16 +402,23 @@ class _ScannerScreenState extends State<ScannerScreen>
     _liveTimer?.cancel();
     String? savedPath;
     try {
-      final documents = await getApplicationDocumentsDirectory();
-      final folder = Directory(p.join(documents.path, 'ecoscan', uid, 'scans'));
-      await folder.create(recursive: true);
       final now = DateTime.now();
-      savedPath = p.join(folder.path, '${now.microsecondsSinceEpoch}.jpg');
-      await File(image).copy(savedPath);
-      if (!mounted || store.userId != uid) {
-        await File(savedPath).delete();
-        return;
+      if (kIsWeb) {
+        final bytes = _photoBytes;
+        savedPath = bytes == null ? '' : await _scanner.historyDataUrl(bytes);
+      } else {
+        final documents = await getApplicationDocumentsDirectory();
+        final folder = Directory(p.join(documents.path, 'ecoscan', uid, 'scans'));
+        await folder.create(recursive: true);
+        savedPath = p.join(folder.path, '${now.microsecondsSinceEpoch}.jpg');
+        await File(image).copy(savedPath);
+        if (!mounted || store.userId != uid) {
+          await File(savedPath).delete();
+          return;
+        }
       }
+      if (!mounted || store.userId != uid) return;
+      final persistedImage = savedPath ?? '';
       await store.addDetection(
         DetectionRecord(
           id: now.microsecondsSinceEpoch.toString(),
@@ -396,7 +427,7 @@ class _ScannerScreenState extends State<ScannerScreen>
           bin: result.bin,
           destination: result.destination,
           confidence: result.confidence,
-          imagePath: savedPath,
+          imagePath: persistedImage,
           detectedAt: now,
           source: _source,
           confirmedByUser: result.isManual,
@@ -410,7 +441,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         if (store.notifications) _notice('Análise salva no histórico.');
       }
     } catch (_) {
-      if (savedPath != null) {
+      if (!kIsWeb && savedPath != null && savedPath.isNotEmpty) {
         try {
           await File(savedPath).delete();
         } catch (_) {}
@@ -437,6 +468,7 @@ class _ScannerScreenState extends State<ScannerScreen>
       ? error.message
       : 'A análise não terminou. Aproxime o material, melhore a luz e tente novamente.';
   static Future<void> _deleteTemp(String path) async {
+    if (kIsWeb || path.isEmpty) return;
     try {
       await File(path).delete();
     } catch (_) {}
@@ -484,7 +516,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                     FilterChip(
                       label: Text(_live ? '● AO VIVO' : 'Foto'),
                       selected: _live,
-                      onSelected: _busy || _saving
+                      onSelected: kIsWeb || _busy || _saving
                           ? null
                           : (live) {
                               setState(() {
@@ -501,7 +533,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                     ),
                     IconButton(
                       tooltip: 'Flash',
-                      onPressed: _busy ? null : _toggleFlash,
+                      onPressed: kIsWeb || _busy ? null : _toggleFlash,
                       icon: Icon(_flash ? Icons.flash_on : Icons.flash_off),
                     ),
                     IconButton(
@@ -521,9 +553,9 @@ class _ScannerScreenState extends State<ScannerScreen>
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (!_live && _photoPath != null)
-                        Image.file(
-                          File(_photoPath!),
+                      if (!_live && _photoBytes != null)
+                        Image.memory(
+                          _photoBytes!,
                           fit: BoxFit.contain,
                           gaplessPlayback: true,
                           errorBuilder: (_, _, _) => const Icon(
@@ -551,7 +583,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                             ),
                           ),
                         ),
-                      if (_loading && _photoPath == null)
+                      if (_loading && _photoBytes == null)
                         const Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
@@ -565,7 +597,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                             ],
                           ),
                         ),
-                      if (_cameraError != null && _photoPath == null)
+                      if (_cameraError != null && _photoBytes == null)
                         Center(
                           child: Padding(
                             padding: const EdgeInsets.all(24),
@@ -662,10 +694,12 @@ class _ScannerScreenState extends State<ScannerScreen>
                         ),
                       ),
                     if (result == null)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
                         child: Text(
-                          'Aponte para um material por vez ou selecione uma imagem. O resultado mostra o material e a lixeira indicada.',
+                          kIsWeb
+                              ? 'No navegador, fotografe ou escolha uma imagem e confirme o material. A detecção automática por ML Kit fica disponível no Android/iOS.'
+                              : 'Aponte para um material por vez ou selecione uma imagem. O resultado mostra o material e a lixeira indicada.',
                           textAlign: TextAlign.center,
                         ),
                       )
@@ -715,7 +749,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                         ),
                       ),
                     ],
-                    if (!_live)
+                    if (!kIsWeb && !_live)
                       TextButton.icon(
                         onPressed: _busy || _saving
                             ? null

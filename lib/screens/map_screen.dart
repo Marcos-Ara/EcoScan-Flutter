@@ -117,7 +117,9 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
             maxZoom: 19,
             onMapReady: () => unawaited(_initializeMap()),
             onPositionChanged: (camera, hasGesture) {
-              controller.onMapMoved(camera.center, camera.zoom);
+              if (hasGesture) {
+                controller.onMapMoved(camera.center, camera.zoom);
+              }
             },
           ),
           children: [

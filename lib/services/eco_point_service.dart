@@ -2,23 +2,39 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../core/app_config.dart';
 import '../models/eco_point.dart';
 
+/// Loads EcoPoints without coupling the map widget to a network provider.
+///
+/// The map itself is rendered by `flutter_map`. On Web we intentionally avoid
+/// Overpass: public Overpass mirrors frequently answer with 429/504 and those
+/// failed fetches are surfaced by Chrome even when the app handles them. A
+/// lightweight Nominatim lookup is used instead. Android/iOS may use Overpass
+/// sequentially as a detailed fallback.
 class EcoPointService {
   EcoPointService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
+  final Map<String, _CacheEntry> _cache = {};
+  DateTime _lastNominatimRequest = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<List<EcoPoint>> searchQuick(
     LatLng center,
     int radius, {
     List<String> queries = const ['ecoponto'],
   }) async {
-    final safeRadius = radius.clamp(2500, AppConfig.maxMapSearchRadiusMeters);
+    final safeRadius = radius
+        .clamp(2500, AppConfig.maxMapSearchRadiusMeters)
+        .toInt();
+    final cacheKey = _cacheKey('quick:${queries.join('|')}', center, safeRadius);
+    final cached = _readCache(cacheKey);
+    if (cached != null) return cached;
+
     final latitudeDelta = safeRadius / 111320;
     final cosine = math
         .cos(center.latitude * math.pi / 180)
@@ -27,11 +43,17 @@ class EcoPointService {
     final longitudeDelta = safeRadius / (111320 * cosine);
     final found = <EcoPoint>[];
 
-    for (final query in queries) {
+    // Nominatim asks clients to avoid bursts. Queries are serialized and only
+    // the fallback query is attempted when the previous one returned nothing.
+    for (var index = 0; index < queries.length; index++) {
+      final query = queries[index].trim();
+      if (query.isEmpty) continue;
+      if (index > 0 && found.isNotEmpty) break;
+      await _respectNominatimInterval();
       try {
         final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
           'format': 'jsonv2',
-          'limit': '30',
+          'limit': '35',
           'accept-language': 'pt-BR',
           'q': query,
           'viewbox': [
@@ -45,6 +67,7 @@ class EcoPointService {
         final response = await _client
             .get(uri, headers: _headers)
             .timeout(AppConfig.requestTimeout);
+        _lastNominatimRequest = DateTime.now();
         if (response.statusCode < 200 || response.statusCode >= 300) continue;
         final data = jsonDecode(response.body);
         if (data is! List) continue;
@@ -69,17 +92,32 @@ class EcoPointService {
             ),
           );
         }
+      } on TimeoutException {
+        // Keep cached/previous markers and let the UI offer a manual refresh.
       } catch (_) {
-        // A busca detalhada do Overpass continua mesmo se a busca rápida falhar.
+        // Network lookup is best-effort; the map itself remains usable.
       }
     }
-    return _deduplicate(found);
+
+    final result = _deduplicate(found);
+    _writeCache(cacheKey, result);
+    return result;
   }
 
   Future<List<EcoPoint>> searchDetailed(LatLng center, int radius) async {
-    final safeRadius = radius.clamp(1000, AppConfig.maxMapSearchRadiusMeters);
+    // Public Overpass endpoints are deliberately not called by the browser.
+    // This removes the recurring 429/504 console errors seen in Chrome.
+    if (kIsWeb) return const <EcoPoint>[];
+
+    final safeRadius = radius
+        .clamp(1000, AppConfig.maxMapSearchRadiusMeters)
+        .toInt();
+    final cacheKey = _cacheKey('detailed', center, safeRadius);
+    final cached = _readCache(cacheKey);
+    if (cached != null) return cached;
+
     final query =
-        '''[out:json][timeout:16];(
+        '''[out:json][timeout:12];(
       node[amenity=recycling](around:$safeRadius,${center.latitude},${center.longitude});
       node[amenity=waste_disposal](around:$safeRadius,${center.latitude},${center.longitude});
       node[amenity=waste_transfer_station](around:$safeRadius,${center.latitude},${center.longitude});
@@ -91,32 +129,20 @@ class EcoPointService {
       relation[amenity=waste_transfer_station](around:$safeRadius,${center.latitude},${center.longitude});
     );out center tags;''';
 
-    final completer = Completer<List<EcoPoint>>();
-    var remaining = AppConfig.overpassEndpoints.length;
+    // Sequential fallback: do not hit every public mirror at the same time.
     for (final endpoint in AppConfig.overpassEndpoints) {
-      _queryOverpass(endpoint, query).then(
-        (items) {
-          if (items.isNotEmpty && !completer.isCompleted) {
-            completer.complete(items);
-          }
-          remaining -= 1;
-          if (remaining == 0 && !completer.isCompleted) {
-            completer.complete(const []);
-          }
-        },
-        onError: (_) {
-          remaining -= 1;
-          if (remaining == 0 && !completer.isCompleted) {
-            completer.complete(const []);
-          }
-        },
-      );
+      try {
+        final items = await _queryOverpass(endpoint, query);
+        if (items.isNotEmpty) {
+          _writeCache(cacheKey, items);
+          return items;
+        }
+      } catch (_) {
+        // Try the next mirror.
+      }
     }
-
-    return completer.future.timeout(
-      const Duration(seconds: 11),
-      onTimeout: () => const <EcoPoint>[],
-    );
+    _writeCache(cacheKey, const []);
+    return const <EcoPoint>[];
   }
 
   Future<List<EcoPoint>> _queryOverpass(String endpoint, String query) async {
@@ -176,6 +202,30 @@ class EcoPointService {
     return _deduplicate(points);
   }
 
+  Future<void> _respectNominatimInterval() async {
+    final elapsed = DateTime.now().difference(_lastNominatimRequest);
+    const minimum = Duration(milliseconds: 1100);
+    if (elapsed < minimum) await Future<void>.delayed(minimum - elapsed);
+  }
+
+  List<EcoPoint>? _readCache(String key) {
+    final entry = _cache[key];
+    if (entry == null) return null;
+    if (DateTime.now().difference(entry.createdAt) > const Duration(minutes: 8)) {
+      _cache.remove(key);
+      return null;
+    }
+    return entry.points;
+  }
+
+  void _writeCache(String key, List<EcoPoint> points) {
+    _cache[key] = _CacheEntry(DateTime.now(), List.unmodifiable(points));
+  }
+
+  static String _cacheKey(String prefix, LatLng center, int radius) =>
+      '$prefix:${center.latitude.toStringAsFixed(3)}:'
+      '${center.longitude.toStringAsFixed(3)}:${radius ~/ 500}';
+
   static List<EcoPoint> _deduplicate(Iterable<EcoPoint> items) {
     final unique = <String, EcoPoint>{};
     for (final item in items) {
@@ -203,13 +253,20 @@ class EcoPointService {
       ? value.toDouble()
       : double.tryParse(value?.toString() ?? '');
 
-  static const _headers = {
+  static Map<String, String> get _headers => {
     'Accept': 'application/json',
     'Accept-Language': 'pt-BR',
-    'User-Agent': 'EcoScanMobile/1.0 (br.com.ecoscan.ecoscan_mobile)',
+    if (!kIsWeb)
+      'User-Agent': 'EcoScanMobile/2.0 (br.com.ecoscan.ecoscan_mobile)',
   };
 
   void dispose() => _client.close();
+}
+
+class _CacheEntry {
+  const _CacheEntry(this.createdAt, this.points);
+  final DateTime createdAt;
+  final List<EcoPoint> points;
 }
 
 extension _IterableFirstOrNull<T> on Iterable<T> {

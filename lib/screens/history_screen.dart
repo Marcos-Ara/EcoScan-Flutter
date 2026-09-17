@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -7,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/detection_record.dart';
 import '../models/material_guide.dart';
 import '../state/ecoscan_store.dart';
+import '../widgets/app_image.dart';
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
@@ -67,12 +66,12 @@ class HistoryScreen extends StatelessWidget {
                     ),
                     leading: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        File(record.imagePath),
+                      child: AppImage(
+                        source: record.imagePath,
                         width: 64,
                         height: 64,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const SizedBox.square(
+                        fallback: const SizedBox.square(
                           dimension: 64,
                           child: Icon(Icons.image_outlined),
                         ),
@@ -135,11 +134,11 @@ class DetectionDetailScreen extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(24),
-            child: Image.file(
-              File(record.imagePath),
+            child: AppImage(
+              source: record.imagePath,
               height: 300,
               fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => const SizedBox(
+              fallback: const SizedBox(
                 height: 180,
                 child: Icon(Icons.image_outlined, size: 60),
               ),

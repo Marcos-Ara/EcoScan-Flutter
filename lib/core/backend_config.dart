@@ -1,12 +1,13 @@
-/// Public application identifiers used by the client.
+/// Public client identifiers used by EcoScan.
 ///
-/// Firebase Authentication in this codebase still points to the original
-/// Auth project unless FIREBASE_API_KEY/FIREBASE_AUTH_DOMAIN are supplied at
-/// build time. Firebase Hosting may be a different project.
+/// These values belong to the same Firebase project used by Hosting and Auth:
+/// `ecoscan-ai-e961f`. They are public application identifiers, not admin
+/// secrets. Build-time values from `--dart-define-from-file` still override the
+/// defaults below.
 abstract final class BackendConfig {
   static const firebaseApiKey = String.fromEnvironment(
     'FIREBASE_API_KEY',
-    defaultValue: 'AIzaSyBMXRb6XSMES6FRQD1INg0-JjU0SD61iGY',
+    defaultValue: 'AIzaSyAJ2-3rn_a05orGD5NinFZPvmdxF3duyEE',
   );
   static const firebaseProjectId = String.fromEnvironment(
     'FIREBASE_PROJECT_ID',
@@ -25,13 +26,14 @@ abstract final class BackendConfig {
     defaultValue: 'sb_publishable_ai4WJqrDkBS7rcebvaS7KA_hpf0hzOP',
   );
 
-  /// OAuth client of type "Web application".
-  ///
-  /// Android uses it as serverClientId. Web uses it as clientId. This value is
-  /// public, but it must belong to the same Google/Firebase Auth project used
-  /// by [firebaseApiKey].
+  /// OAuth client of type "Web application" from the same Google/Firebase
+  /// project. Android uses it as `serverClientId`; Web reads the same client ID
+  /// from `web/index.html` and this value is kept as a build-time validation /
+  /// native configuration source.
   static const googleWebClientId = String.fromEnvironment(
     'GOOGLE_WEB_CLIENT_ID',
+    defaultValue:
+        '1403190965-t4i39s47ojq3p1jrolhbenq349tpph45.apps.googleusercontent.com',
   );
 
   // Backwards-compatible alias used by older code/docs.

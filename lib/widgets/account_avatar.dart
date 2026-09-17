@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/firebase_session.dart';
 import '../state/ecoscan_store.dart';
+import 'app_image.dart';
 
 class AccountAvatar extends StatelessWidget {
   const AccountAvatar({this.radius = 25, this.onTap, super.key});
@@ -34,10 +33,10 @@ class AccountAvatar extends StatelessWidget {
             child: SizedBox.square(
               dimension: radius * 2,
               child: local.isNotEmpty
-                  ? Image.file(
-                      File(local),
+                  ? AppImage(
+                      source: local,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => fallback,
+                      fallback: fallback,
                     )
                   : user?.photoUrl.startsWith('https://') == true
                   ? Image.network(

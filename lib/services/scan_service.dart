@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -10,27 +13,54 @@ import 'material_catalog.dart';
 import 'waste_classifier.dart';
 
 class ScanResult {
-  const ScanResult(this.imagePath, this.classification);
+  const ScanResult({
+    required this.imagePath,
+    required this.imageBytes,
+    required this.classification,
+  });
+
   final String imagePath;
+  final Uint8List imageBytes;
   final WasteClassification classification;
 }
 
-/// A single model instance, and the same pipeline for camera and gallery.
+/// Image analysis pipeline shared by camera and gallery.
+///
+/// ML Kit is native-only (Android/iOS). On Web the camera/gallery still works,
+/// the photo is normalized locally, and the UI asks the user to confirm the
+/// material instead of calling an unsupported MethodChannel. This keeps the
+/// browser console clean and avoids pretending that ML Kit works on Web.
 class ScanService {
-  final _labeler = ImageLabeler(
-    options: ImageLabelerOptions(confidenceThreshold: 0.5),
-  );
+  ImageLabeler? _labeler;
   Future<MaterialCatalog>? _catalog;
   bool _closed = false;
 
-  Future<ScanResult> analyze(String sourcePath) async {
+  bool get supportsAutomaticLabeling => !kIsWeb;
+
+  ImageLabeler get _nativeLabeler => _labeler ??= ImageLabeler(
+    options: ImageLabelerOptions(confidenceThreshold: 0.5),
+  );
+
+  /// Backwards-compatible native/file API used by tests and older callers.
+  Future<ScanResult> analyze(String sourcePath) => analyzeFile(XFile(sourcePath));
+
+  Future<ScanResult> analyzeFile(XFile sourceFile) async {
     if (_closed) throw StateError('Scanner encerrado');
-    final source = File(sourcePath);
-    if (await source.length() > 30 * 1024 * 1024) {
+
+    final bytes = await sourceFile.readAsBytes();
+    if (bytes.lengthInBytes > 30 * 1024 * 1024) {
       throw const FormatException('Escolha uma foto de até 30 MB.');
     }
-    final bytes = await source.readAsBytes();
     final prepared = await compute(_preparePhoto, bytes);
+
+    if (kIsWeb) {
+      return ScanResult(
+        imagePath: sourceFile.path,
+        imageBytes: prepared,
+        classification: WasteClassifier.unknown,
+      );
+    }
+
     final temp = await getTemporaryDirectory();
     final file = File(
       p.join(
@@ -40,12 +70,12 @@ class ScanService {
     );
     await file.writeAsBytes(prepared, flush: true);
     try {
-      final labels = await _labeler.processImage(
+      final labels = await _nativeLabeler.processImage(
         InputImage.fromFilePath(file.path),
       );
       final candidates = labels
-          .map((l) => LabelCandidate(l.label, l.confidence))
-          .toList();
+          .map((label) => LabelCandidate(label.label, label.confidence))
+          .toList(growable: false);
       WasteClassification result;
       try {
         final catalog = await (_catalog ??= MaterialCatalog.load());
@@ -53,17 +83,32 @@ class ScanService {
       } catch (_) {
         result = WasteClassifier.classifyCandidates(candidates);
       }
-      return ScanResult(file.path, result);
+      return ScanResult(
+        imagePath: file.path,
+        imageBytes: prepared,
+        classification: result,
+      );
     } catch (_) {
-      await file.delete();
+      try {
+        await file.delete();
+      } catch (_) {}
       rethrow;
     }
+  }
+
+  /// Creates a small local thumbnail that is safe to persist in browser
+  /// SharedPreferences/localStorage. Native builds continue storing real files.
+  Future<String> historyDataUrl(Uint8List bytes) async {
+    final thumbnail = await compute(_prepareHistoryPhoto, bytes);
+    return 'data:image/jpeg;base64,${base64Encode(thumbnail)}';
   }
 
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await _labeler.close();
+    final labeler = _labeler;
+    _labeler = null;
+    if (labeler != null) await labeler.close();
   }
 }
 
@@ -89,4 +134,24 @@ Uint8List _preparePhoto(Uint8List bytes) {
           );
   }
   return Uint8List.fromList(img.encodeJpg(image, quality: 92));
+}
+
+Uint8List _prepareHistoryPhoto(Uint8List bytes) {
+  final decoded = img.decodeImage(bytes);
+  if (decoded == null) return bytes;
+  var image = img.bakeOrientation(decoded);
+  if (image.width > 640 || image.height > 640) {
+    image = image.width >= image.height
+        ? img.copyResize(
+            image,
+            width: 640,
+            interpolation: img.Interpolation.average,
+          )
+        : img.copyResize(
+            image,
+            height: 640,
+            interpolation: img.Interpolation.average,
+          );
+  }
+  return Uint8List.fromList(img.encodeJpg(image, quality: 76));
 }

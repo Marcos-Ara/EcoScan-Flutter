@@ -141,6 +141,18 @@ class EcoPointController extends ChangeNotifier {
     _lastMapCenter = center;
     _lastMapZoom = zoom;
     _moveDebounce?.cancel();
+
+    // Browsers were repeatedly hitting public POI APIs while the user panned,
+    // which generated 429/504 errors in DevTools. On Web the viewport is still
+    // tracked, but the network refresh is explicit through "Buscar nesta área".
+    if (kIsWeb) {
+      if (!_isSearching) {
+        _status = 'Mapa movido. Toque em atualizar para buscar EcoPontos nesta área.';
+        notifyListeners();
+      }
+      return;
+    }
+
     _moveDebounce = Timer(AppConfig.mapSearchDelay, () {
       unawaited(searchArea(center, zoom: zoom));
     });
@@ -199,9 +211,16 @@ class EcoPointController extends ChangeNotifier {
     }
 
     try {
+      // flutter_map only renders the map; POI discovery is isolated in the
+      // service. Web uses the lightweight lookup only, avoiding public
+      // Overpass mirrors that were producing 429/504 console errors.
       final quick = collect(_service.searchQuick(center, radius));
-      final detailed = collect(_service.searchDetailed(center, radius));
-      await Future.wait([quick, detailed]);
+      if (kIsWeb) {
+        await quick;
+      } else {
+        final detailed = collect(_service.searchDetailed(center, radius));
+        await Future.wait([quick, detailed]);
+      }
       if (gathered.isEmpty) {
         await collect(
           _service.searchQuick(

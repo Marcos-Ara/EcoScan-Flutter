@@ -152,7 +152,13 @@ class EcoScanStore extends ChangeNotifier {
   }
 
   static Future<void> _deleteImage(String imagePath) async {
-    if (imagePath.isEmpty) return;
+    if (imagePath.isEmpty ||
+        kIsWeb ||
+        imagePath.startsWith('data:image/') ||
+        imagePath.startsWith('http://') ||
+        imagePath.startsWith('https://')) {
+      return;
+    }
     try {
       final documents = await getApplicationDocumentsDirectory();
       final root = p.join(documents.path, 'ecoscan');

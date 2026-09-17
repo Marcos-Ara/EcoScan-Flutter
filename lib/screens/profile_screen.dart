@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
@@ -73,6 +75,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         imageQuality: 88,
       );
       if (selected == null) return;
+      if (kIsWeb) {
+        final bytes = await selected.readAsBytes();
+        if (store.userId != uid) return;
+        await store.setProfilePhoto(
+          'data:image/jpeg;base64,${base64Encode(bytes)}',
+        );
+        return;
+      }
+
       final documents = await getApplicationDocumentsDirectory();
       final directory = Directory(
         p.join(documents.path, 'ecoscan', uid, 'profile'),

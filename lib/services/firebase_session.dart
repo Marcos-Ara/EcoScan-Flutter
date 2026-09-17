@@ -80,7 +80,7 @@ class FirebaseSession extends ChangeNotifier {
   String? restoreError;
   Future<void>? _refreshing;
   bool _googleInitialized = false;
-  bool _googlePreparing = false;
+  Future<void>? _googleInitialization;
   bool googleReady = false;
   String? googleError;
   StreamSubscription<GoogleSignInAuthenticationEvent>? _googleSubscription;
@@ -271,7 +271,10 @@ class FirebaseSession extends ChangeNotifier {
     await reload();
   }
 
-  Future<void> _ensureGoogleInitialized() async {
+  Future<void> _ensureGoogleInitialized() =>
+      _googleInitialization ??= _initializeGoogleSignIn();
+
+  Future<void> _initializeGoogleSignIn() async {
     if (_googleInitialized) return;
     if (BackendConfig.googleWebClientId.isEmpty) {
       throw const AuthFailure('GOOGLE_CONFIG');
@@ -279,10 +282,11 @@ class FirebaseSession extends ChangeNotifier {
 
     final signIn = GoogleSignIn.instance;
     await signIn.initialize(
-      // Google Identity Services on Web needs the Web OAuth client as
-      // clientId. Android needs that same Web OAuth client as serverClientId.
+      // On Web the client ID is read from the official meta tag in
+      // web/index.html. Passing it again here causes Google Identity Services
+      // to initialize the same client more than once in debug builds.
       clientId: kIsWeb
-          ? BackendConfig.googleWebClientId
+          ? null
           : defaultTargetPlatform == TargetPlatform.iOS &&
                 BackendConfig.googleIosClientId.isNotEmpty
           ? BackendConfig.googleIosClientId
@@ -303,6 +307,7 @@ class FirebaseSession extends ChangeNotifier {
         },
       );
     }
+
     _googleInitialized = true;
     googleReady = true;
     googleError = null;
@@ -315,16 +320,15 @@ class FirebaseSession extends ChangeNotifier {
   /// Flutter button. The official GIS button emits authenticationEvents,
   /// which are handled by [_completeGoogleSignIn].
   Future<void> prepareGoogleSignIn() async {
-    if (_googleInitialized || _googlePreparing) return;
-    _googlePreparing = true;
+    if (_googleInitialized) return;
     try {
       await _ensureGoogleInitialized();
     } catch (error) {
+      // Allow a later retry if initialization failed before completion.
+      _googleInitialization = null;
       googleReady = false;
       googleError = _googleErrorMessage(error);
       notifyListeners();
-    } finally {
-      _googlePreparing = false;
     }
   }
 
