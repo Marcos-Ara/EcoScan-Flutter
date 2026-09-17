@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -83,7 +82,6 @@ class FirebaseSession extends ChangeNotifier {
   Future<void>? _googleInitialization;
   bool googleReady = false;
   String? googleError;
-  StreamSubscription<GoogleSignInAuthenticationEvent>? _googleSubscription;
 
   Future<Map<String, dynamic>> _request(
     String action,
@@ -280,33 +278,25 @@ class FirebaseSession extends ChangeNotifier {
       throw const AuthFailure('GOOGLE_CONFIG');
     }
 
+    // Web uses the Google Identity Services SDK directly in the Web-only
+    // button widget. This lets Chrome/Android use the FedCM button flow and
+    // avoids the popup/tab hand-off that can end on ERR_CACHE_MISS on mobile.
+    // Native platforms keep using google_sign_in normally.
+    if (kIsWeb) {
+      googleReady = true;
+      googleError = null;
+      notifyListeners();
+      return;
+    }
+
     final signIn = GoogleSignIn.instance;
     await signIn.initialize(
-      // Initialize Google Identity Services exactly once. On Web we pass the
-      // OAuth client ID programmatically and intentionally do not duplicate it
-      // with a <meta name="google-signin-client_id"> tag in index.html.
-      clientId: kIsWeb
-          ? BackendConfig.googleWebClientId
-          : defaultTargetPlatform == TargetPlatform.iOS &&
-                BackendConfig.googleIosClientId.isNotEmpty
+      clientId: defaultTargetPlatform == TargetPlatform.iOS &&
+              BackendConfig.googleIosClientId.isNotEmpty
           ? BackendConfig.googleIosClientId
           : null,
-      serverClientId: kIsWeb ? null : BackendConfig.googleWebClientId,
+      serverClientId: BackendConfig.googleWebClientId,
     );
-
-    if (kIsWeb) {
-      _googleSubscription ??= signIn.authenticationEvents.listen(
-        (event) {
-          if (event is GoogleSignInAuthenticationEventSignIn) {
-            unawaited(_handleGoogleAuthenticationEvent(event.user));
-          }
-        },
-        onError: (Object error, StackTrace _) {
-          googleError = _googleErrorMessage(error);
-          notifyListeners();
-        },
-      );
-    }
 
     _googleInitialized = true;
     googleReady = true;
@@ -314,17 +304,13 @@ class FirebaseSession extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Prepares Google Sign-In before the Web GIS button is rendered.
-  ///
-  /// On Web, google_sign_in 7.x does not allow authenticate() from a custom
-  /// Flutter button. The official GIS button emits authenticationEvents,
-  /// which are handled by [_completeGoogleSignIn].
+  /// Prepares Google Sign-In. Web only validates the public client ID here;
+  /// the GIS SDK itself is initialized once by google_sign_in_action_web.dart.
   Future<void> prepareGoogleSignIn() async {
-    if (_googleInitialized) return;
+    if (googleReady) return;
     try {
       await _ensureGoogleInitialized();
     } catch (error) {
-      // Allow a later retry if initialization failed before completion.
       _googleInitialization = null;
       googleReady = false;
       googleError = _googleErrorMessage(error);
@@ -332,9 +318,8 @@ class FirebaseSession extends ChangeNotifier {
     }
   }
 
-  Future<void> _completeGoogleSignIn(GoogleSignInAccount user) async {
-    final idToken = user.authentication.idToken;
-    if (idToken == null || idToken.isEmpty) {
+  Future<void> _completeGoogleIdToken(String idToken) async {
+    if (idToken.isEmpty) {
       throw const AuthFailure('GOOGLE_CONFIG');
     }
     final postBody = Uri(
@@ -342,8 +327,8 @@ class FirebaseSession extends ChangeNotifier {
     ).query;
     final data = await _request('signInWithIdp', {
       'postBody': postBody,
-      // For Web the actual origin must be authorized in Firebase Auth.
-      // Native builds use the Firebase auth domain as the request URI.
+      // For Web the exact site origin must be authorized in Firebase Auth.
+      // Native builds use the project's Firebase auth domain.
       'requestUri': kIsWeb
           ? Uri.base.origin
           : 'https://${BackendConfig.firebaseAuthDomain}',
@@ -355,14 +340,25 @@ class FirebaseSession extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _handleGoogleAuthenticationEvent(
-    GoogleSignInAccount user,
-  ) async {
+  Future<void> _completeGoogleSignIn(GoogleSignInAccount user) async {
+    final idToken = user.authentication.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw const AuthFailure('GOOGLE_CONFIG');
+    }
+    await _completeGoogleIdToken(idToken);
+  }
+
+  /// Receives the ID token returned by Google Identity Services on Web.
+  /// The token is exchanged with Firebase Auth through signInWithIdp, keeping
+  /// the same Firebase account/session model used by e-mail/password login.
+  Future<void> signInGoogleWebToken(String idToken) async {
+    if (!kIsWeb) throw const AuthFailure('GOOGLE_UNSUPPORTED');
     try {
-      await _completeGoogleSignIn(user);
-    } catch (error) {
-      googleError = _googleErrorMessage(error);
-      notifyListeners();
+      await _completeGoogleIdToken(idToken);
+    } on AuthFailure {
+      rethrow;
+    } catch (_) {
+      throw const AuthFailure('GOOGLE_CONFIG');
     }
   }
 
@@ -420,7 +416,6 @@ class FirebaseSession extends ChangeNotifier {
 
   @override
   void dispose() {
-    unawaited(_googleSubscription?.cancel());
     _client.close();
     super.dispose();
   }

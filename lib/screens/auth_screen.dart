@@ -248,6 +248,8 @@ class _AuthScreenState extends State<AuthScreen> {
                       busy: _busy,
                       ready: auth.googleReady,
                       onPressed: () => _run(auth.signInGoogle),
+                      onCredential: (idToken) =>
+                          _run(() => auth.signInGoogleWebToken(idToken)),
                     ),
                   ),
                   Consumer<FirebaseSession>(

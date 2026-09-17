@@ -1,0 +1,9 @@
+O APK antigo foi removido deste pacote para evitar instalar uma versão desatualizada.
+Depois de validar o login Web mobile, gere um APK novo com:
+
+flutter build apk --release --dart-define-from-file=config/mobile.json
+
+Saída esperada:
+build/app/outputs/flutter-apk/app-release.apk
+
+Antes de distribuir um APK definitivo, configure uma chave de assinatura release fixa.
