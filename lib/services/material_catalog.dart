@@ -53,7 +53,7 @@ class MaterialCatalog {
     final scores = <String, double>{};
     final possible = <String, MaterialGuide>{};
     for (final candidate in candidates) {
-      if (candidate.confidence < 0.60) continue;
+      if (!candidate.confidence.isFinite || candidate.confidence < 0.60) continue;
       final matches =
           _byLabel[WasteClassifier.normalize(candidate.label)] ?? const [];
       for (final match in matches) {
@@ -83,7 +83,7 @@ class MaterialCatalog {
     }
     if (direct.isKnown) scores[direct.material!.id] = direct.confidence;
     for (final special in ['special', 'electronic']) {
-      if ((scores[special] ?? 0) >= 0.7) {
+      if ((scores[special] ?? 0) >= (special == 'electronic' ? 0.50 : 0.7)) {
         return WasteClassification(
           material: MaterialGuide.byId(special),
           confidence: scores[special]!,

@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/app_theme.dart';
 import 'screens/session_gate.dart';
-import 'services/firebase_session.dart';
+import 'services/auth_session.dart';
 import 'services/eco_point_service.dart';
 import 'state/eco_point_controller.dart';
 import 'state/ecoscan_store.dart';
@@ -18,7 +18,7 @@ class EcoScanApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: store),
-        ChangeNotifierProvider(create: (_) => FirebaseSession()),
+        ChangeNotifierProvider(create: (_) => AuthSession()),
         Provider<EcoPointService>(
           create: (_) => EcoPointService(),
           dispose: (_, service) => service.dispose(),

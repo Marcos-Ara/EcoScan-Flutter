@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/app_theme.dart';
 import '../models/material_guide.dart';
-import '../services/firebase_session.dart';
+import '../services/auth_session.dart';
 import '../state/ecoscan_store.dart';
 import '../widgets/account_avatar.dart';
 import 'community_screens.dart';
@@ -22,9 +22,12 @@ class HomeScreen extends StatelessWidget {
       Navigator.push(context, MaterialPageRoute<void>(builder: (_) => screen));
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<FirebaseSession>().account;
+    final auth = context.watch<AuthSession>();
+    final user = auth.account;
     final store = context.watch<EcoScanStore>();
-    final name = user?.name.isNotEmpty == true
+    final name = auth.isGuest
+        ? 'Visitante'
+        : user?.name.isNotEmpty == true
         ? user!.name.split(' ').first
         : 'usuário';
     final records = store.detections;
@@ -43,7 +46,7 @@ class HomeScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Bem-vindo de volta',
+                      auth.isGuest ? 'Modo visitante' : 'Bem-vindo de volta',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 3),
@@ -54,7 +57,11 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              AccountAvatar(onTap: () => _open(context, const ProfileScreen())),
+              AccountAvatar(
+                onTap: auth.isGuest
+                    ? null
+                    : () => _open(context, const ProfileScreen()),
+              ),
             ],
           ),
           const SizedBox(height: 24),

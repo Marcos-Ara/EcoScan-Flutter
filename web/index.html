@@ -1,162 +1,27 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="EcoScan AI — escaneie, descubra e descarte melhor.">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="EcoScan AI">
   <meta name="theme-color" content="#071008">
   <link rel="manifest" href="manifest.json">
   <title>EcoScan AI</title>
+  <style>
+    html,body { margin:0; background:#071008; color:#ecf8ee; }
+    #boot { font:16px system-ui; padding:48px 24px; text-align:center; }
+  </style>
 </head>
 <body>
-  <!-- Browser-side scanner: no API key. Models are downloaded once and cached. -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
-  <script>
-    (() => {
-      let cocoPromise;
-      let mobileNetPromise;
-
-      function loadImage(dataUrl) {
-        return new Promise((resolve, reject) => {
-          const image = new Image();
-          image.onload = () => resolve(image);
-          image.onerror = () => reject(new Error('Não foi possível abrir a imagem para análise.'));
-          image.src = dataUrl;
-        });
-      }
-
-      async function getCoco() {
-        cocoPromise ??= cocoSsd.load({ base: 'lite_mobilenet_v2' });
-        return cocoPromise;
-      }
-
-      async function getMobileNet() {
-        mobileNetPromise ??= mobilenet.load({ version: 2, alpha: 0.50 });
-        return mobileNetPromise;
-      }
-
-      window.ecoscanClassifyImage = async (dataUrl) => {
-        const image = await loadImage(dataUrl);
-        const [coco, mobileNet] = await Promise.all([getCoco(), getMobileNet()]);
-        const [objects, classes] = await Promise.all([
-          coco.detect(image, 20, 0.20),
-          mobileNet.classify(image, 7),
-        ]);
-
-        const labels = [];
-        for (const prediction of objects) {
-          labels.push({
-            label: String(prediction.class || ''),
-            confidence: Number(prediction.score || 0),
-          });
-        }
-        for (const prediction of classes) {
-          const probability = Number(prediction.probability || 0);
-          for (const label of String(prediction.className || '').split(',')) {
-            const normalized = label.trim();
-            if (normalized) labels.push({ label: normalized, confidence: probability });
-          }
-        }
-
-        // Reforça classes que carregam informação de MATERIAL. O COCO costuma
-        // retornar apenas "bottle"; o MobileNet, por outro lado, muitas vezes
-        // distingue beer/wine/pop bottle. Estes rótulos extras alimentam o
-        // mesmo classificador local do app e não exigem API key.
-        const normalized = labels.map((e) => ({
-          label: String(e.label || '').toLowerCase(),
-          confidence: Number(e.confidence || 0),
-        }));
-
-        function boost(label, confidence) {
-          const current = labels.find(
-            (e) => String(e.label || '').toLowerCase() === label.toLowerCase(),
-          );
-          if (current) current.confidence = Math.max(Number(current.confidence || 0), confidence);
-          else labels.push({ label, confidence });
-        }
-
-        for (const item of normalized) {
-          const name = item.label;
-          const c = item.confidence;
-          if (/beer bottle|wine bottle|glass bottle|mason jar|perfume bottle/.test(name)) {
-            boost('glass bottle', Math.max(0.78, c));
-          }
-          if (/pop bottle|water bottle|plastic bottle|pill bottle|shampoo bottle|lotion bottle/.test(name)) {
-            boost('plastic bottle', Math.max(0.76, c));
-          }
-          if (/beer can|tin can|aluminum can|beverage can/.test(name)) {
-            boost('aluminum can', Math.max(0.82, c));
-          }
-          if (/cardboard|carton|paper bag|envelope|newspaper/.test(name)) {
-            boost('cardboard', Math.max(0.76, c));
-          }
-        }
-
-        // Ajuda visual para garrafas genéricas. COCO detecta muito bem a forma
-        // "bottle", mas não informa o material. Quando o objeto é claramente
-        // verde/âmbar dentro da própria bounding box, tratamos isso como uma
-        // evidência extra de vidro. É apenas um sinal adicional; rótulos
-        // específicos do MobileNet continuam tendo prioridade.
-        function bottleVisualHint(prediction) {
-          if (!prediction || String(prediction.class || '').toLowerCase() !== 'bottle') return null;
-          const [x, y, w, h] = prediction.bbox || [];
-          if (![x, y, w, h].every(Number.isFinite) || w < 8 || h < 8) return null;
-          const canvas = document.createElement('canvas');
-          canvas.width = 96;
-          canvas.height = 128;
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (!ctx) return null;
-          ctx.drawImage(image, x, y, w, h, 0, 0, canvas.width, canvas.height);
-          const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-          let useful = 0;
-          let greenAmber = 0;
-          let metallic = 0;
-          for (let i = 0; i < data.length; i += 16) {
-            const r = data[i];
-            const g = data[i + 1];
-            const b = data[i + 2];
-            const max = Math.max(r, g, b);
-            const min = Math.min(r, g, b);
-            const brightness = (r + g + b) / 3;
-            if (brightness > 242 || brightness < 18) continue;
-            useful++;
-            const saturated = max - min > 28;
-            const green = saturated && g > r * 1.10 && g > b * 1.08;
-            const amber = saturated && r > g * 1.12 && g > b * 1.10 && r < 225;
-            if (green || amber) greenAmber++;
-            if (max - min < 16 && brightness > 65 && brightness < 205) metallic++;
-          }
-          if (useful < 20) return null;
-          const glassRatio = greenAmber / useful;
-          const metalRatio = metallic / useful;
-          if (glassRatio >= 0.20) return { label: 'glass bottle', confidence: Math.min(0.86, 0.64 + glassRatio) };
-          if (metalRatio >= 0.70) return { label: 'metal bottle', confidence: 0.68 };
-          return null;
-        }
-
-        const hasSpecificBottleMaterial = labels.some((e) =>
-          /beer bottle|wine bottle|glass bottle|pop bottle|water bottle|plastic bottle|metal bottle/i.test(String(e.label || '')),
-        );
-        if (!hasSpecificBottleMaterial) {
-          const bottle = objects
-            .filter((e) => String(e.class || '').toLowerCase() === 'bottle')
-            .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))[0];
-          const hint = bottleVisualHint(bottle);
-          if (hint) boost(hint.label, hint.confidence);
-        }
-
-        labels.sort((a, b) => b.confidence - a.confidence);
-        return labels.slice(0, 32);
-      };
-    })();
-  </script>
+  <div id="boot" role="status">Abrindo EcoScan AI…</div>
+  <!-- Models load only when the scanner opens, never before the login/intro. -->
+  <script src="scanner.js" defer></script>
   <script src="flutter_bootstrap.js" async></script>
+  <script>
+    window.addEventListener('flutter-first-frame', () => document.getElementById('boot')?.remove());
+  </script>
 </body>
 </html>

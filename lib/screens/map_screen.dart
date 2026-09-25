@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_vector_tiles/flutter_map_vector_tiles.dart' as vt;
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -123,11 +124,16 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
             },
           ),
           children: [
-            TileLayer(
-              urlTemplate: _tileUrl(controller.tileStyle),
-              userAgentPackageName: AppConfig.packageName,
-              maxZoom: 19,
-            ),
+            if (controller.tileStyle == MapTileStyle.satellite)
+              TileLayer(
+                urlTemplate:
+                    'https://server.arcgisonline.com/ArcGIS/rest/services/'
+                    'World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                userAgentPackageName: AppConfig.packageName,
+                maxZoom: 19,
+              )
+            else
+              _OpenFreeMapLayer(style: controller.tileStyle),
             MarkerLayer(
               markers: [
                 for (var index = 0; index < points.length; index++)
@@ -153,17 +159,18 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
             ),
             SimpleAttributionWidget(
               source: Text(
-                switch (controller.tileStyle) {
-                  MapTileStyle.dark => 'CARTO, OpenStreetMap contributors',
-                  MapTileStyle.streets => 'OpenStreetMap contributors',
-                  MapTileStyle.satellite =>
-                    'Esri, OpenStreetMap contributors',
-                },
+                controller.tileStyle == MapTileStyle.satellite
+                    ? 'Esri · OpenStreetMap contributors'
+                    : 'OpenFreeMap · © OpenMapTiles · OpenStreetMap',
                 style: const TextStyle(fontSize: 9),
               ),
               backgroundColor: const Color(0xB307100B),
               onTap: () => launchUrl(
-                Uri.parse('https://www.openstreetmap.org/copyright'),
+                Uri.parse(
+                  controller.tileStyle == MapTileStyle.satellite
+                      ? 'https://www.esri.com/'
+                      : 'https://openfreemap.org/',
+                ),
               ),
             ),
           ],
@@ -315,12 +322,103 @@ class _EcoPointsScreenState extends State<EcoPointsScreen> {
     );
   }
 
-  static String _tileUrl(MapTileStyle style) => switch (style) {
-    MapTileStyle.dark =>
-      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-    MapTileStyle.streets => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    MapTileStyle.satellite => 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  };
+}
+
+class _OpenFreeMapLayer extends StatefulWidget {
+  const _OpenFreeMapLayer({required this.style});
+
+  final MapTileStyle style;
+
+  @override
+  State<_OpenFreeMapLayer> createState() => _OpenFreeMapLayerState();
+}
+
+class _OpenFreeMapLayerState extends State<_OpenFreeMapLayer> {
+  dynamic _style;
+  Object? _error;
+  int _loadGeneration = 0;
+
+  String get _styleUrl => widget.style == MapTileStyle.dark
+      ? 'https://tiles.openfreemap.org/styles/dark'
+      : 'https://tiles.openfreemap.org/styles/liberty';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStyle();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OpenFreeMapLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.style != widget.style) _loadStyle();
+  }
+
+  Future<void> _loadStyle() async {
+    final generation = ++_loadGeneration;
+    final previous = _style;
+    _style = null;
+    _error = null;
+    if (mounted) setState(() {});
+    try {
+      previous?.dispose();
+    } catch (_) {}
+
+    try {
+      final loaded = await vt.StyleReader(uri: _styleUrl).read();
+      if (!mounted || generation != _loadGeneration) {
+        loaded.dispose();
+        return;
+      }
+      setState(() => _style = loaded);
+    } catch (error) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() => _error = error);
+    }
+  }
+
+  @override
+  void dispose() {
+    _loadGeneration++;
+    try {
+      _style?.dispose();
+    } catch (_) {}
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _style;
+    if (style != null) {
+      return vt.VectorTileLayer(
+        theme: style.theme,
+        tileProviders: style.providers,
+        rasterSources: style.rasterSources,
+        sprites: style.sprites,
+        tileFadeDuration: const Duration(milliseconds: 120),
+        labelFadeDuration: const Duration(milliseconds: 120),
+      );
+    }
+
+    return ColoredBox(
+      color: widget.style == MapTileStyle.dark
+          ? const Color(0xFF101713)
+          : const Color(0xFFE7EEE8),
+      child: Center(
+        child: _error == null
+            ? const SizedBox(
+                width: 26,
+                height: 26,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              )
+            : FilledButton.tonalIcon(
+                onPressed: _loadStyle,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Recarregar mapa'),
+              ),
+      ),
+    );
+  }
 }
 
 class _MapAction extends StatelessWidget {

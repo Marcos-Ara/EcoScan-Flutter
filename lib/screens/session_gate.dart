@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../services/firebase_session.dart';
+import '../services/auth_session.dart';
 import '../state/ecoscan_store.dart';
 import '../widgets/eco_brand.dart';
 import 'auth_screen.dart';
@@ -26,16 +26,13 @@ class _SessionGateState extends State<SessionGate>
     super.initState();
     _animation = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2100),
+      duration: const Duration(milliseconds: 900),
     )..repeat();
-    _timer = Timer(const Duration(milliseconds: 2850), () {
+    _timer = Timer(const Duration(milliseconds: 700), () {
       if (mounted) {
         _animation.stop();
         setState(() => _introComplete = true);
       }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(context.read<FirebaseSession>().restore());
     });
   }
 
@@ -48,8 +45,8 @@ class _SessionGateState extends State<SessionGate>
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<FirebaseSession>();
-    if (!_introComplete || auth.restoring) {
+    final auth = context.watch<AuthSession>();
+    if (!_introComplete) {
       return Scaffold(
         backgroundColor: const Color(0xFF071008),
         body: Container(
@@ -115,40 +112,24 @@ class _SessionGateState extends State<SessionGate>
         ),
       );
     }
-    if (auth.restoreError != null) {
-      return Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const EcoBrand(),
-                const SizedBox(height: 20),
-                Text(auth.restoreError!, textAlign: TextAlign.center),
-                FilledButton(
-                  onPressed: auth.restore,
-                  child: const Text('Tentar novamente'),
-                ),
-                TextButton(
-                  onPressed: auth.signOut,
-                  child: const Text('Entrar com outra conta'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+    if (auth.account == null && !auth.isGuest) return const AuthScreen();
+    if (!auth.isGuest && auth.passwordRecovery) {
+      return const PasswordRecoveryScreen();
     }
-    if (auth.account == null) return const AuthScreen();
-    if (!auth.account!.verified) return const VerificationScreen();
+    if (!auth.isGuest && auth.account?.verified == false) {
+      return const VerificationScreen();
+    }
+
+    final sessionUserId = auth.isGuest
+        ? AuthSession.guestUserId
+        : auth.account!.uid;
     final store = context.watch<EcoScanStore>();
-    if (store.userId != auth.account!.uid) {
+    if (store.userId != sessionUserId) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) store.switchUser(auth.account?.uid);
+        if (mounted) store.switchUser(sessionUserId);
       });
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return MainShell(key: ValueKey(auth.account!.uid));
+    return MainShell(key: ValueKey(sessionUserId));
   }
 }

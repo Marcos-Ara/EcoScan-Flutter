@@ -94,6 +94,15 @@ abstract final class WasteClassifier {
       'keyboard',
       'computer keyboard',
       'computer mouse',
+      'desktop',
+      'monitor',
+      'computer monitor',
+      'screen',
+      'display',
+      'cellphone',
+      'cellular phone',
+      'tv',
+      'remote',
       'mouse computer',
       'headphones',
       'headphone',
@@ -103,6 +112,22 @@ abstract final class WasteClassifier {
       'remote control',
       'television',
       'tablet computer',
+      'tablet',
+      'hand-held computer',
+      'handheld computer',
+      'digital cellular phone',
+      'electronic device',
+      'printer',
+      'computer printer',
+      'speaker',
+      'loudspeaker',
+      'digital camera',
+      'camera',
+      'game controller',
+      'joystick',
+      'router',
+      'modem',
+      'power bank',
     ],
     'special': [
       'battery',
@@ -110,17 +135,18 @@ abstract final class WasteClassifier {
       'fluorescent lamp',
       'medicine',
       'syringe',
+      'power cell',
+      'button battery',
+      'rechargeable battery',
     ],
     'plastic': [
       'plastic',
       'plastic bottle',
-      'water bottle',
       'pop bottle',
       'soda bottle',
       'shampoo bottle',
       'lotion bottle',
       'detergent bottle',
-      'pill bottle',
       'plastic bag',
       'polyethylene',
       'pet bottle',
@@ -181,27 +207,75 @@ abstract final class WasteClassifier {
     ],
   };
 
+
+  static const _strongElectronicLabels = <String>{
+    'mobile phone',
+    'cell phone',
+    'cellular telephone',
+    'smartphone',
+    'cellphone',
+    'cellular phone',
+    'digital cellular phone',
+    'laptop',
+    'notebook computer',
+    'keyboard',
+    'computer keyboard',
+    'computer mouse',
+    'desktop computer',
+    'computer monitor',
+    'tablet computer',
+    'tablet',
+    'hand-held computer',
+    'handheld computer',
+    'printer',
+    'computer printer',
+    'headphones',
+    'headphone',
+    'earphones',
+    'earbud',
+    'router',
+    'modem',
+    'power bank',
+    'game controller',
+    'joystick',
+  };
+
+  static const _phoneLabels = <String>{
+    'mobile phone',
+    'cell phone',
+    'cellular telephone',
+    'smartphone',
+    'cellphone',
+    'cellular phone',
+    'digital cellular phone',
+  };
+
   static const _specificMaterialLabels = <String>{
-    'beer bottle',
-    'wine bottle',
+    'plastic bottle',
     'water bottle',
     'pop bottle',
     'soda bottle',
-    'plastic bottle',
     'shampoo bottle',
     'lotion bottle',
     'detergent bottle',
     'pill bottle',
+    'plastic bag',
+    'pet bottle',
+    'plastic container',
     'glass bottle',
     'glass jar',
+    'glass container',
+    'beer bottle',
+    'wine bottle',
+    'perfume bottle',
     'mason jar',
-    'beer can',
+    'wine glass',
     'tin can',
+    'beer can',
     'aluminum can',
     'beverage can',
-    'cellular telephone',
-    'notebook computer',
-    'computer mouse',
+    'metal bottle',
+    'metal container',
   };
 
   static const _objectNames = <String, String>{
@@ -245,11 +319,81 @@ abstract final class WasteClassifier {
     'keyboard': 'Teclado',
     'computer keyboard': 'Teclado',
     'computer mouse': 'Mouse',
+    'computer': 'Computador',
+    'desktop computer': 'Computador',
+    'desktop': 'Computador',
+    'monitor': 'Monitor',
+    'computer monitor': 'Monitor',
+    'screen': 'Tela eletrônica',
+    'display': 'Tela eletrônica',
+    'cellphone': 'Celular',
+    'cellular phone': 'Celular',
+    'tv': 'Televisão',
+    'remote': 'Controle remoto',
     'remote control': 'Controle remoto',
     'television': 'Televisão',
     'battery': 'Bateria/Pilha',
     'light bulb': 'Lâmpada',
+    'tablet': 'Tablet',
+    'tablet computer': 'Tablet',
+    'hand-held computer': 'Dispositivo eletrônico',
+    'handheld computer': 'Dispositivo eletrônico',
+    'digital cellular phone': 'Celular',
+    'electronic device': 'Eletrônico',
+    'printer': 'Impressora',
+    'computer printer': 'Impressora',
+    'speaker': 'Caixa de som',
+    'loudspeaker': 'Caixa de som',
+    'digital camera': 'Câmera',
+    'camera': 'Câmera',
+    'game controller': 'Controle de videogame',
+    'joystick': 'Controle de videogame',
+    'router': 'Roteador',
+    'modem': 'Modem',
+    'power bank': 'Carregador portátil',
   };
+
+  /// Confidence floor depends on how specific the model label is.
+  /// Exact device/product labels can be trusted at a lower score than broad
+  /// material words such as "plastic" or "glass". This makes product photos
+  /// (especially phones and small electronics) work without inventing a
+  /// material from weak generic evidence.
+  static double minimumConfidenceForLabel(String value) {
+    final label = normalize(value);
+    if (_strongElectronicLabels.contains(label)) return 0.20;
+    if (directLabels['electronic']!.contains(label)) return 0.45;
+    if (directLabels['special']!.contains(label)) return 0.35;
+    if (_specificMaterialLabels.contains(label)) return 0.42;
+    return 0.55;
+  }
+
+  static bool isStrongSpecificLabel(String value) {
+    final label = normalize(value);
+    return _strongElectronicLabels.contains(label) ||
+        directLabels['special']!.contains(label) ||
+        _specificMaterialLabels.contains(label);
+  }
+
+  static LabelCandidate? _bestPhoneCandidate(
+    List<LabelCandidate> candidates,
+  ) {
+    LabelCandidate? best;
+    for (final candidate in candidates) {
+      if (!candidate.confidence.isFinite || candidate.confidence < 0.20) {
+        continue;
+      }
+      final label = normalize(candidate.label);
+      if (!_phoneLabels.contains(label) &&
+          !label.contains('cellular') &&
+          !label.contains('phone')) {
+        continue;
+      }
+      if (best == null || candidate.confidence > best.confidence) {
+        best = candidate;
+      }
+    }
+    return best;
+  }
 
   static WasteClassification classifyCandidates(
     List<LabelCandidate> candidates,
@@ -258,8 +402,7 @@ abstract final class WasteClassifier {
     for (final candidate in candidates) {
       if (!candidate.confidence.isFinite) continue;
       final label = normalize(candidate.label);
-      final specific = _specificMaterialLabels.contains(label);
-      final minimum = specific ? 0.22 : 0.55;
+      final minimum = minimumConfidenceForLabel(label);
       if (candidate.confidence < minimum) continue;
       for (final entry in directLabels.entries) {
         if (entry.value.contains(label)) {
@@ -272,11 +415,20 @@ abstract final class WasteClassifier {
     }
 
     for (final special in ['special', 'electronic']) {
-      if ((evidence[special] ?? 0) >= 0.65) {
+      if ((evidence[special] ?? 0) >= (special == 'electronic' ? 0.20 : 0.35)) {
+        final objectName = bestObjectName(candidates);
+        final preferredPhone = special == 'electronic'
+            ? _bestPhoneCandidate(candidates)
+            : null;
         return WasteClassification(
           material: MaterialGuide.byId(special),
-          confidence: evidence[special]!,
-          detectedObject: bestObjectName(candidates),
+          // When a second model provides specific phone evidence, keep the
+          // displayed confidence tied to that chosen object instead of showing
+          // a stronger contradictory TV/monitor score.
+          confidence: objectName == 'Celular' && preferredPhone != null
+              ? preferredPhone.confidence
+              : evidence[special]!,
+          detectedObject: objectName,
         );
       }
     }
@@ -308,31 +460,16 @@ abstract final class WasteClassifier {
     List<LabelCandidate> candidates,
   ) {
     final objectName = result.detectedObject ?? bestObjectName(candidates);
+    final direct = classifyCandidates(candidates);
+    if (direct.material?.id == 'electronic' ||
+        direct.material?.id == 'special') {
+      return direct.copyWith(detectedObject: objectName, options: const []);
+    }
     if (result.isKnown) {
       return result.copyWith(
         source: result.source == 'manual' ? 'ai' : result.source,
         detectedObject: objectName,
         options: const [],
-      );
-    }
-
-    final weak = _weakSpecificMaterial(candidates);
-    if (weak != null) {
-      return WasteClassification(
-        material: MaterialGuide.byId(weak.$1),
-        confidence: weak.$2,
-        source: 'ai-estimated',
-        detectedObject: objectName,
-      );
-    }
-
-    // Se só existe uma possibilidade real, a IA pode assumir essa opção.
-    if (result.options.length == 1) {
-      return WasteClassification(
-        material: result.options.first,
-        confidence: 0.55,
-        source: 'ai-estimated',
-        detectedObject: objectName,
       );
     }
 
@@ -344,42 +481,31 @@ abstract final class WasteClassifier {
     );
   }
 
-  static (String, double)? _weakSpecificMaterial(
-    List<LabelCandidate> candidates,
-  ) {
-    final sorted = [...candidates]
-      ..sort((a, b) => b.confidence.compareTo(a.confidence));
-    for (final candidate in sorted) {
-      if (!candidate.confidence.isFinite || candidate.confidence < 0.12) {
-        continue;
-      }
-      final label = normalize(candidate.label);
-      if (!_specificMaterialLabels.contains(label)) continue;
-      for (final entry in directLabels.entries) {
-        if (entry.value.contains(label)) {
-          return (entry.key, candidate.confidence.clamp(0.35, 0.95).toDouble());
-        }
-      }
-    }
-    return null;
-  }
-
   static String? bestObjectName(List<LabelCandidate> candidates) {
+    // Phones are frequently confused with TV/monitor by general-purpose COCO
+    // models in portrait product photos. A measured phone label >= 20% is more
+    // specific than the generic screen label, so prefer it without inflating
+    // its confidence.
+    if (_bestPhoneCandidate(candidates) != null) return 'Celular';
+
     final sorted = [...candidates]
       ..sort((a, b) => b.confidence.compareTo(a.confidence));
     for (final candidate in sorted) {
-      if (!candidate.confidence.isFinite || candidate.confidence < 0.12) {
-        continue;
-      }
+      if (!candidate.confidence.isFinite) continue;
       final label = normalize(candidate.label);
+      final minimum = isStrongSpecificLabel(label) ? 0.18 : 0.40;
+      if (candidate.confidence < minimum) continue;
       final exact = _objectNames[label];
       if (exact != null) return exact;
 
       if (label.contains('bottle')) return 'Garrafa';
       if (label.contains('jar')) return 'Pote';
-      if (label.contains('can')) return 'Lata';
-      if (label.contains('phone')) return 'Celular';
+      if (label.contains('phone') || label.contains('cellular')) return 'Celular';
       if (label.contains('computer')) return 'Computador';
+      if (label.contains('tablet')) return 'Tablet';
+      if (label.contains('printer')) return 'Impressora';
+      if (label.contains('camera')) return 'Câmera';
+      if (label.contains('speaker')) return 'Caixa de som';
       if (label.contains('cardboard')) return 'Papelão';
     }
     return null;

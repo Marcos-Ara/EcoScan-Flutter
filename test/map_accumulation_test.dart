@@ -51,6 +51,19 @@ void main() {
       store.dispose();
     },
   );
+
+  test('mover o mapa não dispara busca automática de rede', () async {
+    final store = await EcoScanStore.load();
+    final service = AreaService();
+    final controller = EcoPointController(service: service, store: store);
+    controller.onMapMoved(const LatLng(-23.60, -46.70), 15);
+    await Future<void>.delayed(const Duration(milliseconds: 550));
+    expect(service.centers, isEmpty);
+    expect(controller.status, contains('atualizar'));
+    controller.dispose();
+    service.dispose();
+    store.dispose();
+  });
   test('atualizar usa a última área e não duplica marcadores', () async {
     final store = await EcoScanStore.load();
     final service = AreaService();

@@ -10,15 +10,15 @@ import 'package:ecoscan_mobile/screens/profile_screen.dart';
 import 'package:ecoscan_mobile/screens/history_screen.dart';
 import 'package:ecoscan_mobile/screens/community_screens.dart';
 import 'package:ecoscan_mobile/screens/settings_screen.dart';
-import 'package:ecoscan_mobile/services/firebase_session.dart';
+import 'package:ecoscan_mobile/services/auth_session.dart';
 import 'package:ecoscan_mobile/state/ecoscan_store.dart';
 import 'package:ecoscan_mobile/widgets/eco_brand.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -33,7 +33,6 @@ void main() {
   });
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    FlutterSecureStorage.setMockInitialValues({});
   });
   Future<Widget> host(
     Widget screen, {
@@ -42,7 +41,7 @@ void main() {
     bool light = false,
   }) async {
     final store = await EcoScanStore.load();
-    final auth = FirebaseSession();
+    final auth = AuthSession(client: SupabaseClient('https://example.supabase.co', 'test-publishable-key'));
     if (signedIn) {
       auth.account = Account(
         uid: 'preview-user',
@@ -50,13 +49,12 @@ void main() {
         name: 'Marcos Vinicius',
         verified: verified,
       );
-      auth.restoring = false;
       store.switchUser('preview-user');
     }
     return MultiProvider(
       providers: [
         ChangeNotifierProvider<EcoScanStore>(create: (_) => store),
-        ChangeNotifierProvider<FirebaseSession>(create: (_) => auth),
+        ChangeNotifierProvider<AuthSession>(create: (_) => auth),
       ],
       child: RepaintBoundary(
         key: const ValueKey('capture'),
@@ -84,7 +82,7 @@ void main() {
     });
   }
 
-  testWidgets('intro aparece antes do login e não entra sem conta', (
+  testWidgets('intro aparece antes do login e oferece modo visitante', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -98,8 +96,16 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Entre na sua conta'), findsOneWidget);
+    expect(find.text('Continuar sem conta'), findsOneWidget);
     expect(find.text('Iniciar Escaneamento'), findsNothing);
     await screenshot(tester, '02-login');
+
+    await tester.ensureVisible(find.text('Continuar sem conta'));
+    await tester.tap(find.text('Continuar sem conta'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.textContaining('Visitante'), findsWidgets);
+    expect(find.text('Iniciar Escaneamento'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -207,4 +213,27 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     }
   });
+
+  for (final size in [const Size(320, 568), const Size(430, 932), const Size(844, 390),
+      const Size(768, 1024), const Size(1366, 768)]) {
+    testWidgets('login, cadastro, início e perfil em ${size.width}x${size.height}', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      for (final screen in [const AuthScreen(), const MainShell(), const ProfileScreen()]) {
+        await tester.pumpWidget(await host(screen, signedIn: true));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: '${screen.runtimeType} em $size');
+        if (screen is AuthScreen) {
+          await tester.ensureVisible(find.text('Criar Conta'));
+          await tester.tap(find.text('Criar Conta'));
+          await tester.pumpAndSettle();
+          expect(find.text('Confirmar senha'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        }
+        await tester.pumpWidget(const SizedBox());
+      }
+    });
+  }
 }

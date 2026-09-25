@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
-import '../services/firebase_session.dart';
+import '../services/auth_session.dart';
 import '../state/ecoscan_store.dart';
 import '../widgets/account_avatar.dart';
 
@@ -29,7 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    final user = context.read<FirebaseSession>().account;
+    final user = context.read<AuthSession>().account;
     _name.text = user?.name ?? '';
     _email.text = user?.email ?? '';
   }
@@ -152,7 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     );
                     return;
                   }
-                  final auth = context.read<FirebaseSession>();
+                  final auth = context.read<AuthSession>();
                   final changed = _email.text.trim() != auth.account?.email;
                   _run(
                     () => auth.updateProfile(_name.text, _email.text),
@@ -197,7 +197,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     return;
                   }
                   _run(() async {
-                    await context.read<FirebaseSession>().changePassword(
+                    await context.read<AuthSession>().changePassword(
                       _current.text,
                       _password.text,
                     );
@@ -212,8 +212,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           onPressed: _busy
               ? null
               : () => _run(
-                  () => context.read<FirebaseSession>().resetPassword(
-                    context.read<FirebaseSession>().account!.email,
+                  () => context.read<AuthSession>().resetPassword(
+                    context.read<AuthSession>().account!.email,
                   ),
                   'Link de recuperação enviado.',
                 ),

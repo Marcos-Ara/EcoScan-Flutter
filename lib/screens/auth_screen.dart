@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_theme.dart';
-import '../services/firebase_session.dart';
+import '../services/auth_session.dart';
 import '../widgets/eco_brand.dart';
 import '../widgets/google_sign_in_action.dart';
 
@@ -23,16 +23,6 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _obscure = true;
   String? _message;
   bool _success = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        context.read<FirebaseSession>().prepareGoogleSignIn();
-      }
-    });
-  }
 
   Future<void> _run(Future<void> Function() action, {String? success}) async {
     setState(() {
@@ -64,7 +54,7 @@ class _AuthScreenState extends State<AuthScreen> {
   void _submit() {
     if (_busy) return;
     if (!_form.currentState!.validate()) return;
-    final auth = context.read<FirebaseSession>();
+    final auth = context.read<AuthSession>();
     _run(
       () => _register
           ? auth.register(_name.text, _email.text, _password.text)
@@ -223,7 +213,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               }
                               _run(
                                 () => context
-                                    .read<FirebaseSession>()
+                                    .read<AuthSession>()
                                     .resetPassword(_email.text),
                                 success: 'Se houver uma conta com esse e-mail, você receberá o link de recuperação.',
                               );
@@ -243,26 +233,48 @@ class _AuthScreenState extends State<AuthScreen> {
                       ],
                     ),
                   ),
-                  Consumer<FirebaseSession>(
-                    builder: (context, auth, _) => GoogleSignInAction(
-                      busy: _busy,
-                      ready: auth.googleReady,
-                      onPressed: () => _run(auth.signInGoogle),
-                      onCredential: (idToken) =>
-                          _run(() => auth.signInGoogleWebToken(idToken)),
-                    ),
-                  ),
-                  Consumer<FirebaseSession>(
-                    builder: (context, auth, _) => auth.googleError == null
-                        ? const SizedBox.shrink()
-                        : Padding(
-                            padding: const EdgeInsets.only(top: 12),
+                  Consumer<AuthSession>(
+                    builder: (context, auth, _) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        GoogleSignInAction(
+                          busy: _busy || auth.googleBusy,
+                          ready: auth.googleReady,
+                          onPressed: () {
+                            auth.clearAuthNotice();
+                            _run(auth.signInGoogle);
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: _busy || auth.googleBusy
+                              ? null
+                              : auth.continueAsGuest,
+                          icon: const Icon(Icons.person_outline_rounded),
+                          label: const Text('Continuar sem conta'),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(top: 7),
+                          child: Text(
+                            'Modo visitante: o histórico fica somente neste dispositivo.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        if (_message == null && auth.authNotice != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16),
                             child: Text(
-                              auth.googleError!,
+                              auth.authNotice!,
                               textAlign: TextAlign.center,
                               style: const TextStyle(color: AppColors.danger),
                             ),
                           ),
+                      ],
+                    ),
                   ),
                   if (_message != null)
                     Padding(
@@ -302,7 +314,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       _message = null;
     });
     try {
-      final auth = context.read<FirebaseSession>();
+      final auth = context.read<AuthSession>();
       if (resend) {
         await auth.sendVerification();
       } else {
@@ -338,7 +350,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
               ),
               const SizedBox(height: 14),
               Text(
-                'Confirme o link enviado para ${context.watch<FirebaseSession>().account?.email ?? ''}.',
+                'Confirme o link enviado para ${context.watch<AuthSession>().account?.email ?? ''}.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 22),
@@ -353,12 +365,124 @@ class _VerificationScreenState extends State<VerificationScreen> {
               TextButton(
                 onPressed: _busy
                     ? null
-                    : context.read<FirebaseSession>().signOut,
+                    : context.read<AuthSession>().signOut,
                 child: const Text('Sair'),
               ),
               if (_message != null)
                 Text(_message!, textAlign: TextAlign.center),
             ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class PasswordRecoveryScreen extends StatefulWidget {
+  const PasswordRecoveryScreen({super.key});
+
+  @override
+  State<PasswordRecoveryScreen> createState() => _PasswordRecoveryScreenState();
+}
+
+class _PasswordRecoveryScreenState extends State<PasswordRecoveryScreen> {
+  final _password = TextEditingController();
+  final _confirmation = TextEditingController();
+  bool _busy = false;
+  bool _obscure = true;
+  String? _message;
+
+  @override
+  void dispose() {
+    _password.dispose();
+    _confirmation.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_password.text.length < 6 || _password.text != _confirmation.text) {
+      setState(() => _message = 'Use pelo menos 6 caracteres e confirme a mesma senha.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      await context.read<AuthSession>().completePasswordRecovery(_password.text);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _message = error is AuthFailure
+            ? error.toString()
+            : 'Não foi possível atualizar a senha.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Center(child: EcoBrand(size: 94)),
+                const SizedBox(height: 22),
+                Text(
+                  'Criar nova senha',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineMedium,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Defina a nova senha para concluir a recuperação da sua conta.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.muted),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _password,
+                  obscureText: _obscure,
+                  decoration: InputDecoration(
+                    labelText: 'Nova senha',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                      icon: Icon(_obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _confirmation,
+                  obscureText: _obscure,
+                  decoration: const InputDecoration(labelText: 'Confirmar nova senha'),
+                  onSubmitted: (_) {
+                    if (!_busy) _save();
+                  },
+                ),
+                const SizedBox(height: 18),
+                FilledButton(
+                  onPressed: _busy ? null : _save,
+                  child: Text(_busy ? 'Salvando...' : 'Atualizar senha'),
+                ),
+                if (_message != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 14),
+                    child: Text(
+                      _message!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.danger),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

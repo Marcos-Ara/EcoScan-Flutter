@@ -26,6 +26,7 @@ class EcoPointController extends ChangeNotifier {
   Timer? _moveDebounce;
   _AreaRequest? _pendingRequest;
   bool _initialized = false;
+  bool _disposed = false;
   bool _isSearching = false;
   bool _isLocating = false;
   String _status = 'Abra o mapa para localizar os EcoPontos próximos.';
@@ -142,19 +143,18 @@ class EcoPointController extends ChangeNotifier {
     _lastMapZoom = zoom;
     _moveDebounce?.cancel();
 
-    // Browsers were repeatedly hitting public POI APIs while the user panned,
-    // which generated 429/504 errors in DevTools. On Web the viewport is still
-    // tracked, but the network refresh is explicit through "Buscar nesta área".
-    if (kIsWeb) {
-      if (!_isSearching) {
-        _status = 'Mapa movido. Toque em atualizar para buscar EcoPontos nesta área.';
-        notifyListeners();
-      }
-      return;
-    }
-
-    _moveDebounce = Timer(AppConfig.mapSearchDelay, () {
-      unawaited(searchArea(center, zoom: zoom));
+    // Do not fire public place-search requests continuously while the user is
+    // panning the map. After the gesture settles, invite an explicit refresh.
+    // This keeps the map responsive and prevents bursts/timeouts on free OSM
+    // community services.
+    _moveDebounce = Timer(const Duration(milliseconds: 450), () {
+      if (_disposed || _isSearching) return;
+      final radius = radiusForZoom(zoom);
+      final areaKey =
+          '${center.latitude.toStringAsFixed(3)}|${center.longitude.toStringAsFixed(3)}|${radius ~/ 500}';
+      if (areaKey == _lastAreaKey) return;
+      _status = 'Área alterada. Toque em atualizar para buscar EcoPontos aqui.';
+      notifyListeners();
     });
   }
 
@@ -168,6 +168,7 @@ class EcoPointController extends ChangeNotifier {
     int? radiusOverride,
     bool force = false,
   }) async {
+    if (_disposed) return;
     _lastMapCenter = center;
     _lastMapZoom = zoom;
     final radius = radiusOverride ?? radiusForZoom(zoom);
@@ -186,13 +187,14 @@ class EcoPointController extends ChangeNotifier {
     if (!force && areaKey == _lastAreaKey) return;
     _lastAreaKey = areaKey;
     _isSearching = true;
-    _status = 'Buscando todos os EcoPontos mapeados nesta área…';
+    _status = 'Buscando EcoPontos nesta área…';
     notifyListeners();
 
     final beforeCount = _points.length;
     final origin = _userLocation ?? center;
     _recalculateDistances(origin);
     final gathered = <EcoPoint>[];
+    var failed = false;
 
     Future<List<EcoPoint>> collect(Future<List<EcoPoint>> operation) async {
       try {
@@ -206,32 +208,31 @@ class EcoPointController extends ChangeNotifier {
         }
         return items;
       } catch (_) {
+        failed = true;
         return const [];
       }
     }
 
     try {
-      // flutter_map only renders the map; POI discovery is isolated in the
-      // service. Web uses the lightweight lookup only, avoiding public
-      // Overpass mirrors that were producing 429/504 console errors.
-      final quick = collect(_service.searchQuick(center, radius));
-      if (kIsWeb) {
-        await quick;
-      } else {
-        final detailed = collect(_service.searchDetailed(center, radius));
-        await Future.wait([quick, detailed]);
-      }
+      await collect(_service.searchDetailed(center, radius));
       if (gathered.isEmpty) {
         await collect(
           _service.searchQuick(
             center,
-            radius,
-            queries: const ['reciclagem', 'ponto de descarte'],
+            radius.clamp(2500, 12000).toInt(),
+            queries: const [
+              'ecoponto',
+              'centro de reciclagem',
+              'recycling',
+            ],
           ),
         );
       }
       final addedCount = _points.length - beforeCount;
-      if (_points.isEmpty) {
+      if (gathered.isEmpty && failed) {
+        _lastAreaKey = '';
+        _status = 'O serviço de EcoPontos está indisponível. Os pontos já carregados foram mantidos. Tente atualizar mais tarde.';
+      } else if (_points.isEmpty) {
         _status = 'Nenhum EcoPonto mapeado foi encontrado nesta área.';
       } else if (addedCount > 0) {
         _status =
@@ -251,7 +252,7 @@ class EcoPointController extends ChangeNotifier {
       notifyListeners();
       final pending = _pendingRequest;
       _pendingRequest = null;
-      if (pending != null) {
+      if (pending != null && !_disposed) {
         unawaited(
           searchArea(
             pending.center,
@@ -300,7 +301,14 @@ class EcoPointController extends ChangeNotifier {
   }
 
   @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
   void dispose() {
+    _disposed = true;
+    _pendingRequest = null;
     _moveDebounce?.cancel();
     super.dispose();
   }

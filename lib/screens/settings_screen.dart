@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../services/firebase_session.dart';
+import '../services/auth_session.dart';
 import '../state/ecoscan_store.dart';
 import 'profile_screen.dart';
 import 'community_screens.dart';
@@ -12,6 +12,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<EcoScanStore>();
+    final auth = context.watch<AuthSession>();
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(20),
@@ -37,16 +38,30 @@ class SettingsScreen extends StatelessWidget {
             value: store.sounds,
             onChanged: store.setSounds,
           ),
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: const Text('Meu perfil'),
-            subtitle: const Text('Nome, foto, e-mail e senha'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
+          if (auth.isGuest)
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Modo visitante'),
+              subtitle: const Text(
+                'Sem conta: histórico e preferências ficam neste dispositivo.',
+              ),
+              trailing: const Icon(Icons.login_rounded),
+              onTap: () {
+                store.switchUser(null);
+                auth.leaveGuest();
+              },
+            )
+          else
+            ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: const Text('Meu perfil'),
+              subtitle: const Text('Nome, foto, e-mail e senha'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const ProfileScreen()),
+              ),
             ),
-          ),
           const ListTile(
             leading: Icon(Icons.language),
             title: Text('Idioma: Português (BR)'),
@@ -67,12 +82,11 @@ class SettingsScreen extends StatelessWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.redAccent),
-            title: const Text(
-              'Sair da Conta',
-              style: TextStyle(color: Colors.redAccent),
+            title: Text(
+              auth.isGuest ? 'Sair do modo visitante' : 'Sair da conta',
+              style: const TextStyle(color: Colors.redAccent),
             ),
             onTap: () async {
-              final auth = context.read<FirebaseSession>();
               store.switchUser(null);
               await auth.signOut();
             },

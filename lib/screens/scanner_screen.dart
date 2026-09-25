@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -16,18 +15,20 @@ import '../core/app_theme.dart';
 import '../models/detection_record.dart';
 import '../services/scan_service.dart';
 import '../services/waste_classifier.dart';
+import '../services/web_image_labeler.dart';
 import '../state/eco_point_controller.dart';
 import '../state/ecoscan_store.dart';
 
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  const ScannerScreen({this.scanner, super.key});
+  final ScanService? scanner;
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
 class _ScannerScreenState extends State<ScannerScreen>
     with WidgetsBindingObserver {
-  final _scanner = ScanService();
+  late final _scanner = widget.scanner ?? ScanService();
   final _picker = ImagePicker();
   CameraController? _camera;
   List<CameraDescription> _cameras = [];
@@ -42,6 +43,10 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _flash = false;
   bool _saved = false;
   bool _saving = false;
+  bool _preparingAi = kIsWeb;
+  double _brightness = 1.2;
+  double _maxExposure = 0;
+  bool _adjustingLight = false;
   int _revision = 0;
   int _cameraIndex = 0;
   int _liveFailures = 0;
@@ -56,7 +61,21 @@ class _ScannerScreenState extends State<ScannerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_warmup());
     unawaited(_boot());
+  }
+
+  Future<void> _warmup() async {
+    try {
+      await _scanner.warmup();
+    } catch (_) {
+      // A later scan retries model loading; gallery stays available.
+    } finally {
+      if (mounted) {
+        setState(() => _preparingAi = false);
+        _scheduleLive();
+      }
+    }
   }
 
   Future<void> _boot() async {
@@ -157,6 +176,10 @@ class _ScannerScreenState extends State<ScannerScreen>
           } catch (_) {}
           try {
             await camera.setExposureMode(ExposureMode.auto);
+            _maxExposure = await camera.getMaxExposureOffset();
+            if (_maxExposure > 0) {
+              await camera.setExposureOffset(((_brightness - 1) * 2).clamp(0, _maxExposure));
+            }
           } catch (_) {}
           try {
             await camera.setFlashMode(FlashMode.off);
@@ -167,6 +190,7 @@ class _ScannerScreenState extends State<ScannerScreen>
           _loading = false;
           _flash = false;
         });
+        if (kIsWeb) setWebPreviewBrightness(_brightness);
         _scheduleLive();
       } on CameraException catch (error) {
         if (mounted) {
@@ -201,8 +225,8 @@ class _ScannerScreenState extends State<ScannerScreen>
         _saving) {
       return;
     }
-    _liveTimer = Timer(const Duration(milliseconds: 2400), () {
-      if (!_busy && _camera?.value.isInitialized == true) {
+    _liveTimer = Timer(const Duration(milliseconds: 800), () {
+      if (!_busy && !_preparingAi && _camera?.value.isInitialized == true) {
         unawaited(_capture(automatic: true));
       } else {
         _scheduleLive();
@@ -243,7 +267,7 @@ class _ScannerScreenState extends State<ScannerScreen>
     XFile? photo;
     try {
       photo = await _camera!.takePicture();
-      final analysis = await _scanner.analyzeFile(photo);
+      final analysis = await _scanner.analyzeFile(photo, live: automatic, brightness: _brightness);
       if (!mounted || request != _revision || !_active) {
         await _deleteTemp(analysis.imagePath);
         return;
@@ -350,10 +374,6 @@ class _ScannerScreenState extends State<ScannerScreen>
   }
 
   Future<void> _toggleFlash() async {
-    if (kIsWeb) {
-      _notice('O flash pelo navegador depende do suporte da câmera e fica desativado no modo Web.');
-      return;
-    }
     final camera = _camera;
     if (camera?.value.isInitialized != true || _busy) return;
     try {
@@ -361,6 +381,22 @@ class _ScannerScreenState extends State<ScannerScreen>
       if (mounted) setState(() => _flash = !_flash);
     } catch (_) {
       if (mounted) _notice('O flash não está disponível nesta câmera.');
+    }
+  }
+
+  Future<void> _setBrightness(double value) async {
+    setState(() => _brightness = value);
+    if (kIsWeb) {
+      setWebPreviewBrightness(value);
+    } else if (_camera?.value.isInitialized == true && _maxExposure > 0 && !_adjustingLight) {
+      _adjustingLight = true;
+      try {
+        await _camera!.setExposureOffset(((value - 1) * 2).clamp(0, _maxExposure));
+      } catch (_) {
+        if (mounted) _notice('Esta câmera não permite ajustar a exposição.');
+      } finally {
+        _adjustingLight = false;
+      }
     }
   }
 
@@ -417,7 +453,7 @@ class _ScannerScreenState extends State<ScannerScreen>
         }
       }
       if (!mounted || store.userId != uid) return;
-      final persistedImage = savedPath ?? '';
+      final persistedImage = savedPath;
       await store.addDetection(
         DetectionRecord(
           id: now.microsecondsSinceEpoch.toString(),
@@ -506,13 +542,15 @@ class _ScannerScreenState extends State<ScannerScreen>
                     FilterChip(
                       label: Text(_live ? '● AO VIVO' : 'Foto'),
                       selected: _live,
-                      onSelected: kIsWeb || _busy || _saving
+                      onSelected: _saving
                           ? null
-                          : (live) {
+                          : (_) {
+                              final live = !_live;
                               setState(() {
                                 _live = live;
                                 _scanError = null;
                                 _liveFailures = 0;
+                                _revision++;
                               });
                               if (live) {
                                 _scheduleLive();
@@ -523,7 +561,7 @@ class _ScannerScreenState extends State<ScannerScreen>
                     ),
                     IconButton(
                       tooltip: 'Flash',
-                      onPressed: kIsWeb || _busy ? null : _toggleFlash,
+                      onPressed: _busy ? null : _toggleFlash,
                       icon: Icon(_flash ? Icons.flash_on : Icons.flash_off),
                     ),
                     IconButton(
@@ -647,6 +685,23 @@ class _ScannerScreenState extends State<ScannerScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (kIsWeb || _maxExposure > 0)
+                      Row(children: [
+                        const Icon(Icons.brightness_6_outlined, size: 20),
+                        const SizedBox(width: 8),
+                        const Text('Claridade'),
+                        Expanded(child: Slider(
+                          value: _brightness,
+                          min: 1, max: 1.6, divisions: 6,
+                          label: '+${((_brightness - 1) * 100).round()}%',
+                          onChanged: _busy ? null : (value) => _setBrightness(value),
+                        )),
+                      ]),
+                    if (_preparingAi)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
+                        child: Text('Preparando IA… No primeiro uso, o modelo é baixado pela internet.'),
+                      ),
                     Row(
                       children: [
                         Expanded(
@@ -683,6 +738,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                           style: const TextStyle(color: AppColors.danger),
                         ),
                       ),
+                    if (_live && result?.isKnown == false)
+                      const Text('Para detalhar o material, toque em Fotografar. A leitura ao vivo continua automaticamente.'),
                     if (result == null)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 16),
@@ -726,7 +783,6 @@ class _ScannerScreenState extends State<ScannerScreen>
                                   _live = true;
                                   _scanError = null;
                                   _photoBytes = null;
-                                  _photoPath = null;
                                   _result = null;
                                   _saved = false;
                                 });
@@ -790,7 +846,7 @@ class _MaterialResult extends StatelessWidget {
               children: [
                 Expanded(
                   child: _ResultInfo(
-                    title: 'Material',
+                    title: result.material?.id == 'electronic' ? 'Categoria' : 'Material',
                     value: result.name,
                     color: color,
                   ),

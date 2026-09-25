@@ -11,17 +11,17 @@ import '../models/eco_point.dart';
 
 /// Loads EcoPoints without coupling the map widget to a network provider.
 ///
-/// The map itself is rendered by `flutter_map`. On Web we intentionally avoid
-/// Overpass: public Overpass mirrors frequently answer with 429/504 and those
-/// failed fetches are surfaced by Chrome even when the app handles them. A
-/// lightweight Nominatim lookup is used instead. Android/iOS may use Overpass
-/// sequentially as a detailed fallback.
+/// The map base layer is independent from place search. EcoPoints come from
+/// OpenStreetMap/Overpass with a small sequential query and a Nominatim fallback.
+/// Results are cached so moving between tabs does not repeatedly hit community
+/// services. A provider outage never removes markers already loaded.
 class EcoPointService {
   EcoPointService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
   final Map<String, _CacheEntry> _cache = {};
   DateTime _lastNominatimRequest = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastDetailedRequest = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<List<EcoPoint>> searchQuick(
     LatLng center,
@@ -53,7 +53,7 @@ class EcoPointService {
       try {
         final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
           'format': 'jsonv2',
-          'limit': '35',
+          'limit': '25',
           'accept-language': 'pt-BR',
           'q': query,
           'viewbox': [
@@ -105,44 +105,39 @@ class EcoPointService {
   }
 
   Future<List<EcoPoint>> searchDetailed(LatLng center, int radius) async {
-    // Public Overpass endpoints are deliberately not called by the browser.
-    // This removes the recurring 429/504 console errors seen in Chrome.
-    if (kIsWeb) return const <EcoPoint>[];
-
-    final safeRadius = radius
-        .clamp(1000, AppConfig.maxMapSearchRadiusMeters)
-        .toInt();
+    // Public Overpass instances are shared infrastructure. A smaller search
+    // radius dramatically reduces timeouts while still covering a useful area
+    // around the user. Wider map views can be refreshed area-by-area.
+    final safeRadius = radius.clamp(1500, 7000).toInt();
     final cacheKey = _cacheKey('detailed', center, safeRadius);
     final cached = _readCache(cacheKey);
     if (cached != null) return cached;
+    final elapsed = DateTime.now().difference(_lastDetailedRequest);
+    const interval = Duration(seconds: 4);
+    if (elapsed < interval) await Future<void>.delayed(interval - elapsed);
 
     final query =
-        '''[out:json][timeout:12];(
-      node[amenity=recycling](around:$safeRadius,${center.latitude},${center.longitude});
-      node[amenity=waste_disposal](around:$safeRadius,${center.latitude},${center.longitude});
-      node[amenity=waste_transfer_station](around:$safeRadius,${center.latitude},${center.longitude});
-      way[amenity=recycling](around:$safeRadius,${center.latitude},${center.longitude});
-      way[amenity=waste_disposal](around:$safeRadius,${center.latitude},${center.longitude});
-      way[amenity=waste_transfer_station](around:$safeRadius,${center.latitude},${center.longitude});
-      relation[amenity=recycling](around:$safeRadius,${center.latitude},${center.longitude});
-      relation[amenity=waste_disposal](around:$safeRadius,${center.latitude},${center.longitude});
-      relation[amenity=waste_transfer_station](around:$safeRadius,${center.latitude},${center.longitude});
-    );out center tags;''';
+        '''[out:json][timeout:7];
+      (
+        nwr(around:$safeRadius,${center.latitude},${center.longitude})[amenity=recycling];
+        nwr(around:$safeRadius,${center.latitude},${center.longitude})[amenity=waste_disposal];
+        nwr(around:$safeRadius,${center.latitude},${center.longitude})[amenity=waste_transfer_station];
+        nwr(around:$safeRadius,${center.latitude},${center.longitude})[recycling_type=centre];
+      );
+      out center tags;''';
 
     // Sequential fallback: do not hit every public mirror at the same time.
     for (final endpoint in AppConfig.overpassEndpoints) {
       try {
+        _lastDetailedRequest = DateTime.now();
         final items = await _queryOverpass(endpoint, query);
-        if (items.isNotEmpty) {
-          _writeCache(cacheKey, items);
-          return items;
-        }
+        _writeCache(cacheKey, items);
+        return items;
       } catch (_) {
         // Try the next mirror.
       }
     }
-    _writeCache(cacheKey, const []);
-    return const <EcoPoint>[];
+    throw const FormatException('Serviço de EcoPontos temporariamente indisponível.');
   }
 
   Future<List<EcoPoint>> _queryOverpass(String endpoint, String query) async {
@@ -157,7 +152,7 @@ class EcoPointService {
         )
         .timeout(AppConfig.requestTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      return const [];
+      throw const FormatException('Falha na consulta dos EcoPontos.');
     }
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) return const [];
@@ -211,7 +206,7 @@ class EcoPointService {
   List<EcoPoint>? _readCache(String key) {
     final entry = _cache[key];
     if (entry == null) return null;
-    if (DateTime.now().difference(entry.createdAt) > const Duration(minutes: 8)) {
+    if (DateTime.now().difference(entry.createdAt) > const Duration(minutes: 60)) {
       _cache.remove(key);
       return null;
     }

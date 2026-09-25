@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../services/firebase_session.dart';
+import '../services/auth_session.dart';
 import '../state/ecoscan_store.dart';
 import 'app_image.dart';
 
@@ -11,9 +11,12 @@ class AccountAvatar extends StatelessWidget {
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<FirebaseSession>().account;
+    final auth = context.watch<AuthSession>();
+    final user = auth.account;
     final local = context.watch<EcoScanStore>().profilePhoto;
-    final name = user?.name.isNotEmpty == true
+    final name = auth.isGuest
+        ? 'Visitante'
+        : user?.name.isNotEmpty == true
         ? user!.name
         : user?.email ?? 'U';
     final fallback = Center(
@@ -37,12 +40,6 @@ class AccountAvatar extends StatelessWidget {
                       source: local,
                       fit: BoxFit.cover,
                       fallback: fallback,
-                    )
-                  : user?.photoUrl.startsWith('https://') == true
-                  ? Image.network(
-                      user!.photoUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => fallback,
                     )
                   : fallback,
             ),
